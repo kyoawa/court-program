@@ -148,12 +148,15 @@ export function RuleEditor({
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <Select value={brandName} onValueChange={setBrandName}>
+        <Select
+          value={brandName || "__any__"}
+          onValueChange={(v) => setBrandName(v === "__any__" ? "" : v)}
+        >
           <SelectTrigger className="text-xs h-8">
             <SelectValue placeholder="Brand..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Any Brand</SelectItem>
+            <SelectItem value="__any__">Any Brand</SelectItem>
             {brands.map((b) => (
               <SelectItem key={b} value={b}>
                 {b}
@@ -162,12 +165,15 @@ export function RuleEditor({
           </SelectContent>
         </Select>
 
-        <Select value={category} onValueChange={setCategory}>
+        <Select
+          value={category || "__any__"}
+          onValueChange={(v) => setCategory(v === "__any__" ? "" : v)}
+        >
           <SelectTrigger className="text-xs h-8">
             <SelectValue placeholder="Category..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Any Category</SelectItem>
+            <SelectItem value="__any__">Any Category</SelectItem>
             {categories.map((c) => (
               <SelectItem key={c} value={c}>
                 {c}
@@ -183,12 +189,15 @@ export function RuleEditor({
           onChange={(e) => setStrain(e.target.value)}
         />
 
-        <Select value={strainType} onValueChange={setStrainType}>
+        <Select
+          value={strainType || "__any__"}
+          onValueChange={(v) => setStrainType(v === "__any__" ? "" : v)}
+        >
           <SelectTrigger className="text-xs h-8">
             <SelectValue placeholder="Strain type..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Any Type</SelectItem>
+            <SelectItem value="__any__">Any Type</SelectItem>
             {STRAIN_TYPES.map((t) => (
               <SelectItem key={t} value={t}>
                 {t}
