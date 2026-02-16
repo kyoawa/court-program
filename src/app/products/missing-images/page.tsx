@@ -14,6 +14,7 @@ import {
 } from "@/components/products/date-range-picker";
 import { ImageSearchDialog } from "@/components/products/image-search-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Upload, ImageOff, Package, Search, FolderOpen, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { MatchResult } from "@/lib/types";
@@ -31,6 +32,7 @@ export default function MissingImagesPage() {
   const [days, setDays] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [applyingRepo, setApplyingRepo] = useState(false);
   const [repoProgress, setRepoProgress] = useState({ done: 0, total: 0 });
 
@@ -67,8 +69,15 @@ export default function MissingImagesPage() {
         return status === "new" ? isNew : !isNew;
       });
     }
+    if (searchQuery.trim()) {
+      const keywords = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+      result = result.filter((p) => {
+        const name = (p.productName ?? "").toLowerCase();
+        return keywords.every((kw) => name.includes(kw));
+      });
+    }
     return result;
-  }, [allMissing, category, brand, status, cutoffDate]);
+  }, [allMissing, category, brand, status, cutoffDate, searchQuery]);
 
   const totalProducts = products.length;
   const missingCount = allMissing.length;
@@ -218,6 +227,12 @@ export default function MissingImagesPage() {
       </div>
 
       <div className="flex items-center gap-4 flex-wrap">
+        <Input
+          placeholder="Search by name..."
+          className="w-48 h-9"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
         <DateRangePicker selectedDays={days} onChange={setDays} />
         <CategoryFilter value={category} onChange={setCategory} />
         <BrandFilter value={brand} onChange={setBrand} products={allMissing} />
