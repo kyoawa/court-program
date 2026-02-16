@@ -11,9 +11,10 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { Loader2, AlertCircle, ImageOff, Check } from "lucide-react";
+import { Loader2, AlertCircle, ImageOff, Check, Search } from "lucide-react";
 import type { ProductSearchResult } from "@/hooks/use-image-search";
 
 interface ImageSearchDialogProps {
@@ -22,6 +23,7 @@ interface ImageSearchDialogProps {
   results: ProductSearchResult[];
   isSearching: boolean;
   progress: { current: number; total: number };
+  onSearchSingle?: (productId: number, customQuery: string) => void;
 }
 
 export function ImageSearchDialog({
@@ -30,6 +32,7 @@ export function ImageSearchDialog({
   results,
   isSearching,
   progress,
+  onSearchSingle,
 }: ImageSearchDialogProps) {
   const router = useRouter();
   // productId -> selected image URL
@@ -112,6 +115,11 @@ export function ImageSearchDialog({
               onSelectImage={(url) =>
                 handleSelectImage(result.productId, url)
               }
+              onSearchCustom={
+                onSearchSingle
+                  ? (query) => onSearchSingle(result.productId, query)
+                  : undefined
+              }
             />
           ))}
 
@@ -140,11 +148,22 @@ function ProductResultCard({
   result,
   selectedUrl,
   onSelectImage,
+  onSearchCustom,
 }: {
   result: ProductSearchResult;
   selectedUrl?: string;
   onSelectImage: (url: string) => void;
+  onSearchCustom?: (query: string) => void;
 }) {
+  const [customQuery, setCustomQuery] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+
+  function handleCustomSearch() {
+    if (!customQuery.trim() || !onSearchCustom) return;
+    onSearchCustom(customQuery.trim());
+    setShowCustom(false);
+  }
+
   return (
     <div className="rounded-lg border p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -219,6 +238,50 @@ function ProductResultCard({
               )}
             </button>
           ))}
+        </div>
+      )}
+
+      {onSearchCustom && (result.status === "done" || result.status === "error") && (
+        <div className="pt-1">
+          {!showCustom ? (
+            <button
+              type="button"
+              onClick={() => setShowCustom(true)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Not finding it? Search your own terms
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Type your own search..."
+                value={customQuery}
+                onChange={(e) => setCustomQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCustomSearch();
+                }}
+                className="h-8 text-sm"
+                autoFocus
+              />
+              <Button
+                size="sm"
+                className="h-8 px-3"
+                onClick={handleCustomSearch}
+                disabled={!customQuery.trim()}
+              >
+                <Search className="h-3 w-3 mr-1" />
+                Search
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 px-2"
+                onClick={() => setShowCustom(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

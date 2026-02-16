@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
         for (let i = 0; i < products.length; i++) {
           const product = products[i];
-          const query = buildSearchQuery(product);
+          const query = product.customQuery?.trim() || buildSearchQuery(product);
 
           controller.enqueue(
             encoder.encode(

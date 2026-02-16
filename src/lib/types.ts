@@ -77,6 +77,7 @@ export interface ProductSearchRequest {
   brandName: string | null;
   category: string | null;
   strain: string | null;
+  customQuery?: string;
 }
 
 export interface RepositoryImage {

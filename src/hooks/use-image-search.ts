@@ -119,6 +119,85 @@ export function useImageSearch() {
     []
   );
 
+  const searchSingle = useCallback(
+    async (productId: number, customQuery: string) => {
+      setResults((prev) =>
+        prev.map((r) =>
+          r.productId === productId
+            ? { ...r, status: "searching" as const, query: customQuery, images: [], error: undefined }
+            : r
+        )
+      );
+
+      try {
+        const res = await fetch("/api/images/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            products: [
+              {
+                productId,
+                productName: customQuery,
+                brandName: null,
+                category: null,
+                strain: null,
+                customQuery,
+              },
+            ],
+          }),
+        });
+
+        if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = "";
+          while (true) {
+            const { done: streamDone, value } = await reader.read();
+            if (streamDone) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === "results") {
+                setResults((prev) =>
+                  prev.map((r) =>
+                    r.productId === data.productId
+                      ? { ...r, status: "done" as const, images: data.images }
+                      : r
+                  )
+                );
+              } else if (data.type === "search_error") {
+                setResults((prev) =>
+                  prev.map((r) =>
+                    r.productId === data.productId
+                      ? { ...r, status: "error" as const, error: data.error }
+                      : r
+                  )
+                );
+              }
+            }
+          }
+        }
+      } catch (err) {
+        setResults((prev) =>
+          prev.map((r) =>
+            r.productId === productId
+              ? { ...r, status: "error" as const, error: (err as Error).message }
+              : r
+          )
+        );
+      }
+    },
+    []
+  );
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     setIsSearching(false);
@@ -131,5 +210,5 @@ export function useImageSearch() {
     setProgress({ current: 0, total: 0 });
   }, []);
 
-  return { results, isSearching, progress, startSearch, stop, reset };
+  return { results, isSearching, progress, startSearch, searchSingle, stop, reset };
 }

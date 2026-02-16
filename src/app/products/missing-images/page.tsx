@@ -323,6 +323,7 @@ export default function MissingImagesPage() {
         results={imageSearch.results}
         isSearching={imageSearch.isSearching}
         progress={imageSearch.progress}
+        onSearchSingle={imageSearch.searchSingle}
       />
     </div>
   );
