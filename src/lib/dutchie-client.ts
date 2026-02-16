@@ -7,10 +7,12 @@ import type {
   DeleteImageRequest,
   SuccessResult,
 } from "./types";
+import { STORES, type StoreName } from "./constants";
 
-function getAuthHeader(): string {
-  const value = process.env.DUTCHIE_AUTH_BILLINGS;
-  if (!value) throw new Error("Missing env var: DUTCHIE_AUTH_BILLINGS");
+function getAuthHeader(store?: StoreName): string {
+  const envKey = store ? STORES[store] : "DUTCHIE_AUTH_BILLINGS";
+  const value = process.env[envKey];
+  if (!value) throw new Error(`Missing env var: ${envKey}`);
   return value;
 }
 
@@ -26,6 +28,7 @@ async function apiRequest<T>(
     method?: string;
     body?: unknown;
     params?: Record<string, string>;
+    store?: StoreName;
   } = {}
 ): Promise<T> {
   const baseUrl = getBaseUrl();
@@ -40,7 +43,7 @@ async function apiRequest<T>(
   const res = await fetch(url.toString(), {
     method: options.method ?? "GET",
     headers: {
-      Authorization: getAuthHeader(),
+      Authorization: getAuthHeader(options.store),
       "Content-Type": "application/json",
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
@@ -57,6 +60,7 @@ async function apiRequest<T>(
 export async function getProducts(params?: {
   fromLastModifiedDateUTC?: string;
   isActive?: boolean;
+  store?: StoreName;
 }): Promise<ProductDetail[]> {
   const queryParams: Record<string, string> = {};
   if (params?.fromLastModifiedDateUTC) {
@@ -65,7 +69,10 @@ export async function getProducts(params?: {
   if (params?.isActive !== undefined) {
     queryParams.isActive = String(params.isActive);
   }
-  return apiRequest<ProductDetail[]>("/products", { params: queryParams });
+  return apiRequest<ProductDetail[]>("/products", {
+    params: queryParams,
+    store: params?.store,
+  });
 }
 
 export async function getCategories(): Promise<ProductCategory[]> {

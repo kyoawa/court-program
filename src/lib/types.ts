@@ -110,6 +110,8 @@ export interface MatchResult {
   matchedRuleId: number | null;
 }
 
+export type InventoryMap = Record<number, string[]>;
+
 export interface StrainDetail {
   strainId: number;
   globalStrainId: string | null;

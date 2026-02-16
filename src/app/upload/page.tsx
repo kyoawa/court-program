@@ -4,22 +4,26 @@ import { Suspense, useState, useMemo, useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
+import { ProductTable } from "@/components/products/product-table";
 import { CategoryFilter } from "@/components/products/category-filter";
 import { FileDropZone } from "@/components/upload/file-drop-zone";
 import { UrlInputList } from "@/components/upload/url-input-list";
 import { UploadQueueTable } from "@/components/upload/upload-queue-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { Upload, RotateCcw, Trash2, Play, Sparkles, Loader2 } from "lucide-react";
+import {
+  Upload,
+  RotateCcw,
+  Trash2,
+  Play,
+  Sparkles,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { ProductDetail } from "@/lib/types";
 
@@ -40,7 +44,8 @@ function UploadPageContent() {
 
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [tableCollapsed, setTableCollapsed] = useState(false);
   const [generatingDescs, setGeneratingDescs] = useState(false);
   const [descProgress, setDescProgress] = useState({ current: 0, total: 0 });
   const [generatedDescs, setGeneratedDescs] = useState<
@@ -71,13 +76,9 @@ function UploadPageContent() {
     return list;
   }, [products, category, search]);
 
-  const preselectedProducts = useMemo(
-    () => products.filter((p) => preselectedIds.has(p.productId)),
-    [products, preselectedIds]
-  );
-
-  const selectedProduct = products.find(
-    (p) => String(p.productId) === selectedProductId
+  const selectedProducts = useMemo(
+    () => products.filter((p) => selectedIds.has(p.productId)),
+    [products, selectedIds]
   );
 
   const matchFileToProduct = useCallback(
@@ -110,11 +111,12 @@ function UploadPageContent() {
           },
         ]);
         matched++;
-      } else if (selectedProduct) {
+      } else if (selectedIds.size === 1) {
+        const fallback = selectedProducts[0];
         queue.addItems([
           {
-            productId: selectedProduct.productId,
-            productName: selectedProduct.productName ?? "Unknown",
+            productId: fallback.productId,
+            productName: fallback.productName ?? "Unknown",
             source: { type: "file" as const, file },
           },
         ]);
@@ -126,9 +128,15 @@ function UploadPageContent() {
 
     if (matched > 0) toast.success(`Queued ${matched} image(s)`);
     if (unmatched > 0) {
-      toast.error(
-        `${unmatched} file(s) could not be matched. Select a product first or name files by SKU.`
-      );
+      if (selectedIds.size > 1) {
+        toast.error(
+          `${unmatched} file(s) could not be auto-matched. Select exactly 1 product for fallback assignment, or name files by SKU.`
+        );
+      } else {
+        toast.error(
+          `${unmatched} file(s) could not be matched. Select a product first or name files by SKU.`
+        );
+      }
     }
   }
 
@@ -138,21 +146,24 @@ function UploadPageContent() {
       toast.error("Enter at least one URL");
       return;
     }
-    if (!selectedProduct && preselectedProducts.length === 0) {
-      toast.error("Select a product first");
+    if (selectedIds.size === 0) {
+      toast.error("Select at least one product first");
       return;
     }
 
-    const target = selectedProduct ?? preselectedProducts[0];
-    queue.addItems(
+    const items = selectedProducts.flatMap((product) =>
       validUrls.map((url) => ({
-        productId: target.productId,
-        productName: target.productName ?? "Unknown",
+        productId: product.productId,
+        productName: product.productName ?? "Unknown",
         source: { type: "url" as const, url: url.trim() },
       }))
     );
+
+    queue.addItems(items);
     setUrls([""]);
-    toast.success(`Queued ${validUrls.length} URL(s) for ${target.productName}`);
+    toast.success(
+      `Queued ${validUrls.length} URL(s) for ${selectedProducts.length} product(s) (${items.length} total)`
+    );
   }
 
   const queuedMissingDescs = useMemo(() => {
@@ -193,7 +204,6 @@ function UploadPageContent() {
         if (!res.ok) throw new Error("Failed to generate");
         const data = await res.json();
         if (data.description) {
-          // Show the generated description immediately
           setGeneratedDescs((prev) => {
             const next = new Map(prev);
             next.set(p.productId, {
@@ -202,7 +212,6 @@ function UploadPageContent() {
             });
             return next;
           });
-          // Then save to Dutchie
           try {
             const saveRes = await fetch("/api/descriptions/set", {
               method: "POST",
@@ -214,7 +223,6 @@ function UploadPageContent() {
             });
             if (!saveRes.ok) throw new Error("Failed to save");
           } catch {
-            // Description was generated but save failed — still show it
             failed++;
           }
           success++;
@@ -246,11 +254,12 @@ function UploadPageContent() {
     );
   }
 
+  // Initialize selection from URL params
   useEffect(() => {
-    if (preselectedProducts.length > 0 && !selectedProductId) {
-      setSelectedProductId(String(preselectedProducts[0].productId));
+    if (preselectedIds.size > 0 && selectedIds.size === 0) {
+      setSelectedIds(preselectedIds);
     }
-  }, [preselectedProducts, selectedProductId]);
+  }, [preselectedIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-populate queue from web search results
   useEffect(() => {
@@ -300,41 +309,50 @@ function UploadPageContent() {
       </div>
 
       <div className="rounded-lg border p-4 space-y-4">
-        <h2 className="font-semibold">1. Select Target Product</h2>
-
-        {preselectedProducts.length > 0 && (
-          <p className="text-sm text-muted-foreground">
-            {preselectedProducts.length} product(s) pre-selected.
-          </p>
-        )}
-
-        <div className="flex items-center gap-3 flex-wrap">
-          <CategoryFilter value={category} onChange={setCategory} />
-          <Input
-            placeholder="Search by name or SKU..."
-            className="w-64"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">1. Select Target Products</h2>
+          <div className="flex items-center gap-2">
+            {selectedIds.size > 0 && (
+              <Badge variant="default">{selectedIds.size} selected</Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setTableCollapsed(!tableCollapsed)}
+            >
+              {tableCollapsed ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronUp className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
         </div>
 
-        <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-          <SelectTrigger className="w-full">
-            <SelectValue
-              placeholder={
-                productsLoading ? "Loading products..." : "Choose a product..."
-              }
+        {!tableCollapsed && (
+          <>
+            <div className="flex items-center gap-3 flex-wrap">
+              <CategoryFilter value={category} onChange={setCategory} />
+              <Input
+                placeholder="Search by name or SKU..."
+                className="w-64"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <span className="text-sm text-muted-foreground ml-auto">
+                {filteredProducts.length} products
+              </span>
+            </div>
+
+            <ProductTable
+              products={filteredProducts}
+              isLoading={productsLoading}
+              selectable
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
             />
-          </SelectTrigger>
-          <SelectContent>
-            {filteredProducts.map((p) => (
-              <SelectItem key={p.productId} value={String(p.productId)}>
-                {p.productName ?? "Unnamed"} ({p.sku ?? "no SKU"}) -{" "}
-                {p.category ?? "No category"}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          </>
+        )}
       </div>
 
       <div className="rounded-lg border p-4 space-y-4">
@@ -349,20 +367,28 @@ function UploadPageContent() {
           <TabsContent value="files" className="space-y-3 mt-3">
             <p className="text-sm text-muted-foreground">
               Drop files here. Files named by SKU will auto-match to products.
-              Otherwise they go to the selected product above.
+              {selectedIds.size === 1
+                ? " Unmatched files go to the selected product."
+                : selectedIds.size > 1
+                  ? " Select exactly 1 product for unmatched file fallback."
+                  : " Select a product for unmatched files."}
             </p>
             <FileDropZone onFilesSelected={handleFilesAutoMatch} />
           </TabsContent>
 
           <TabsContent value="urls" className="space-y-3 mt-3">
             <p className="text-sm text-muted-foreground">
-              Enter image URLs. They will be uploaded to the selected product
-              above.
+              Enter image URLs. They will be uploaded to{" "}
+              {selectedIds.size === 0
+                ? "the selected product(s)."
+                : selectedIds.size === 1
+                  ? `${selectedProducts[0]?.productName ?? "the selected product"}.`
+                  : `all ${selectedIds.size} selected products.`}
             </p>
             <UrlInputList urls={urls} onChange={setUrls} />
             <Button variant="outline" size="sm" onClick={handleAddUrls}>
               <Upload className="h-4 w-4 mr-1" />
-              Add to Queue
+              Add to Queue{selectedIds.size > 1 ? ` (${selectedIds.size} products)` : ""}
             </Button>
           </TabsContent>
         </Tabs>

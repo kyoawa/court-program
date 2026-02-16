@@ -26,10 +26,16 @@ interface ProductTableProps {
   onSelectionChange?: (ids: Set<number>) => void;
   showNewBadge?: boolean;
   newSinceDays?: number;
+  inventory?: Record<number, string[]>;
+  showInventory?: boolean;
 }
 
 type SortField = "productName" | "category" | "lastModifiedDateUTC" | "brandName";
 type SortDir = "asc" | "desc";
+
+function formatStoreName(name: string): string {
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export function ProductTable({
   products,
@@ -39,6 +45,8 @@ export function ProductTable({
   onSelectionChange,
   showNewBadge,
   newSinceDays,
+  inventory,
+  showInventory,
 }: ProductTableProps) {
   const [sortField, setSortField] = useState<SortField>("lastModifiedDateUTC");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -182,6 +190,9 @@ export function ProductTable({
               <TableHead>
                 <SortButton field="lastModifiedDateUTC">Modified</SortButton>
               </TableHead>
+              {showInventory && (
+                <TableHead className="text-center">Stores</TableHead>
+              )}
               <TableHead className="text-center">Images</TableHead>
               <TableHead className="text-center">Desc</TableHead>
               <TableHead>Status</TableHead>
@@ -251,6 +262,28 @@ export function ProductTable({
                       ? new Date(product.lastModifiedDateUTC).toLocaleDateString()
                       : "-"}
                   </TableCell>
+                  {showInventory && (
+                    <TableCell className="text-center">
+                      {(() => {
+                        const stores = inventory?.[product.productId];
+                        if (!stores || stores.length === 0) {
+                          return (
+                            <Badge variant="outline" className="text-xs text-muted-foreground">
+                              0
+                            </Badge>
+                          );
+                        }
+                        return (
+                          <span
+                            className="text-sm cursor-help"
+                            title={stores.map(formatStoreName).join(", ")}
+                          >
+                            {stores.length}
+                          </span>
+                        );
+                      })()}
+                    </TableCell>
+                  )}
                   <TableCell className="text-center">
                     {imgCount === 0 ? (
                       <Badge variant="destructive" className="text-xs">

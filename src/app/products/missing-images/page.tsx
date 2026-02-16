@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
+import { useInventory } from "@/hooks/use-inventory";
 import { useImageSearch } from "@/hooks/use-image-search";
 import { ProductTable } from "@/components/products/product-table";
 import { CategoryFilter } from "@/components/products/category-filter";
@@ -15,7 +16,7 @@ import {
 import { ImageSearchDialog } from "@/components/products/image-search-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Upload, ImageOff, Package, Search, FolderOpen, Loader2 } from "lucide-react";
+import { Upload, ImageOff, Package, Search, FolderOpen, Loader2, Store } from "lucide-react";
 import { toast } from "sonner";
 import type { MatchResult } from "@/lib/types";
 
@@ -33,6 +34,7 @@ export default function MissingImagesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [inventoryFilter, setInventoryFilter] = useState<"all" | "in-stock" | "no-stock">("all");
   const [applyingRepo, setApplyingRepo] = useState(false);
   const [repoProgress, setRepoProgress] = useState({ done: 0, total: 0 });
 
@@ -41,6 +43,7 @@ export default function MissingImagesPage() {
     fromLastModifiedDateUTC: fromDate,
     isActive: true,
   });
+  const { inventory, isLoading: inventoryLoading } = useInventory();
   const imageSearch = useImageSearch();
 
   const allMissing = useMemo(
@@ -76,8 +79,17 @@ export default function MissingImagesPage() {
         return keywords.every((kw) => name.includes(kw));
       });
     }
+    if (inventoryFilter === "in-stock") {
+      result = result.filter(
+        (p) => inventory[p.productId] && inventory[p.productId].length > 0
+      );
+    } else if (inventoryFilter === "no-stock") {
+      result = result.filter(
+        (p) => !inventory[p.productId] || inventory[p.productId].length === 0
+      );
+    }
     return result;
-  }, [allMissing, category, brand, status, cutoffDate, searchQuery]);
+  }, [allMissing, category, brand, status, cutoffDate, searchQuery, inventoryFilter, inventory]);
 
   const totalProducts = products.length;
   const missingCount = allMissing.length;
@@ -197,7 +209,7 @@ export default function MissingImagesPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <div className="rounded-lg border p-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Package className="h-4 w-4" />
@@ -224,6 +236,19 @@ export default function MissingImagesPage() {
             {isLoading ? "-" : `${pct}%`}
           </div>
         </div>
+        <div className="rounded-lg border p-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Store className="h-4 w-4" />
+            Not In Any Store
+          </div>
+          <div className="text-2xl font-bold mt-1 text-amber-600">
+            {isLoading || inventoryLoading
+              ? "-"
+              : allMissing.filter(
+                  (p) => !inventory[p.productId] || inventory[p.productId].length === 0
+                ).length}
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-4 flex-wrap">
@@ -237,6 +262,19 @@ export default function MissingImagesPage() {
         <CategoryFilter value={category} onChange={setCategory} />
         <BrandFilter value={brand} onChange={setBrand} products={allMissing} />
         <StatusFilter value={status} onChange={setStatus} />
+        <div className="flex items-center gap-1">
+          {(["all", "in-stock", "no-stock"] as const).map((opt) => (
+            <Button
+              key={opt}
+              variant={inventoryFilter === opt ? "default" : "outline"}
+              size="sm"
+              className="text-xs h-9"
+              onClick={() => setInventoryFilter(opt)}
+            >
+              {opt === "all" ? "All Stores" : opt === "in-stock" ? "In Stock" : "No Stock"}
+            </Button>
+          ))}
+        </div>
         {selectedIds.size > 0 && (
           <>
             <Button onClick={handleUploadSelected}>
@@ -272,6 +310,8 @@ export default function MissingImagesPage() {
         onSelectionChange={setSelectedIds}
         showNewBadge={days > 0}
         newSinceDays={days > 0 ? days : undefined}
+        inventory={inventory}
+        showInventory
       />
 
       <ImageSearchDialog
