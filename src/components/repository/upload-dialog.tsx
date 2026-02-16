@@ -22,6 +22,7 @@ interface UploadDialogProps {
 export function UploadDialog({ onUploaded }: UploadDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -53,12 +54,14 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
           base64Image: base64,
           fileName: file.name,
           mimeType: file.type,
+          groupName: groupName.trim() || null,
         }),
       });
       if (!res.ok) throw new Error("Failed to upload");
       toast.success("Image added to repository");
       setOpen(false);
       setName("");
+      setGroupName("");
       setFile(null);
       setPreview(null);
       onUploaded();
@@ -88,6 +91,14 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
               placeholder="e.g. Lookah Seahorse Pro"
               value={name}
               onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Group <span className="text-muted-foreground font-normal">(optional)</span></label>
+            <Input
+              placeholder="e.g. Lionheart Nano Pods"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
             />
           </div>
           {preview ? (

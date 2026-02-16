@@ -36,11 +36,27 @@ export default function RepositoryPage() {
     return Array.from(set).sort();
   }, [products]);
 
-  // For match preview, only show products missing images
   const missingImageProducts = useMemo(
     () => products.filter((p) => !p.imageUrl && (!p.imageUrls || p.imageUrls.length === 0)),
     [products]
   );
+
+  const grouped = useMemo(() => {
+    const groups = new Map<string, RepositoryImage[]>();
+    const ungrouped: RepositoryImage[] = [];
+
+    for (const img of images) {
+      if (img.groupName) {
+        const list = groups.get(img.groupName) ?? [];
+        list.push(img);
+        groups.set(img.groupName, list);
+      } else {
+        ungrouped.push(img);
+      }
+    }
+
+    return { groups, ungrouped };
+  }, [images]);
 
   async function handleDelete(image: RepositoryImage) {
     try {
@@ -53,6 +69,77 @@ export default function RepositoryPage() {
     } catch {
       toast.error("Failed to delete image");
     }
+  }
+
+  function renderImageCard(image: RepositoryImage) {
+    const isExpanded = expandedId === image.id;
+    return (
+      <div
+        key={image.id}
+        className="rounded-lg border overflow-hidden"
+      >
+        <div
+          className="flex items-center gap-4 p-3 cursor-pointer hover:bg-accent/50 transition-colors"
+          onClick={() =>
+            setExpandedId(isExpanded ? null : image.id)
+          }
+        >
+          <img
+            src={`/api/repository/images/${image.id}`}
+            alt={image.name}
+            className="w-12 h-12 rounded object-cover flex-shrink-0"
+          />
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm truncate">
+              {image.name}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {image.fileName}
+            </p>
+          </div>
+          <Badge variant="secondary" className="text-xs">
+            {image.rules.length} rule(s)
+          </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(image);
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+        </div>
+
+        {isExpanded && (
+          <div className="border-t p-4 bg-muted/30">
+            <div className="flex gap-6">
+              <img
+                src={`/api/repository/images/${image.id}`}
+                alt={image.name}
+                className="w-48 h-48 rounded-lg object-contain border bg-background"
+              />
+              <div className="flex-1">
+                <RuleEditor
+                  imageId={image.id}
+                  rules={image.rules}
+                  brands={brands}
+                  categories={categories}
+                  onChanged={() => mutate()}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -82,77 +169,29 @@ export default function RepositoryPage() {
       )}
 
       {images.length > 0 && (
-        <div className="space-y-3">
-          {images.map((image) => {
-            const isExpanded = expandedId === image.id;
-            return (
-              <div
-                key={image.id}
-                className="rounded-lg border overflow-hidden"
-              >
-                <div
-                  className="flex items-center gap-4 p-3 cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() =>
-                    setExpandedId(isExpanded ? null : image.id)
-                  }
-                >
-                  <img
-                    src={`/api/repository/images/${image.id}`}
-                    alt={image.name}
-                    className="w-12 h-12 rounded object-cover flex-shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">
-                      {image.name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {image.fileName}
-                    </p>
-                  </div>
-                  <Badge variant="secondary" className="text-xs">
-                    {image.rules.length} rule(s)
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(image);
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                  {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </div>
-
-                {isExpanded && (
-                  <div className="border-t p-4 bg-muted/30">
-                    <div className="flex gap-6">
-                      <img
-                        src={`/api/repository/images/${image.id}`}
-                        alt={image.name}
-                        className="w-48 h-48 rounded-lg object-contain border bg-background"
-                      />
-                      <div className="flex-1">
-                        <RuleEditor
-                          imageId={image.id}
-                          rules={image.rules}
-                          brands={brands}
-                          categories={categories}
-                          onChanged={() => mutate()}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
+        <div className="space-y-6">
+          {Array.from(grouped.groups.entries()).map(([groupName, groupImages]) => (
+            <div key={groupName} className="space-y-2">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                {groupName}
+              </h3>
+              <div className="space-y-3">
+                {groupImages.map((image) => renderImageCard(image))}
               </div>
-            );
-          })}
+            </div>
+          ))}
+          {grouped.ungrouped.length > 0 && (
+            <div className="space-y-2">
+              {grouped.groups.size > 0 && (
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  Other Images
+                </h3>
+              )}
+              <div className="space-y-3">
+                {grouped.ungrouped.map((image) => renderImageCard(image))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

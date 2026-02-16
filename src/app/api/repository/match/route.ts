@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
             AND (r.category IS NULL OR r.category = ${p.category})
             AND (r.strain IS NULL OR r.strain = ${p.strain})
             AND (r.strain_type IS NULL OR r.strain_type = ${p.strainType})
-            AND (r.product_name_contains IS NULL OR ${p.productName ?? ""} ILIKE '%' || r.product_name_contains || '%')
+            AND (r.product_name_keywords IS NULL OR (
+              SELECT bool_and(${p.productName ?? ""} ILIKE '%' || kw || '%')
+              FROM unnest(r.product_name_keywords) AS kw
+            ))
           ORDER BY r.priority DESC
           LIMIT 1
         `;

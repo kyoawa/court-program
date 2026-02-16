@@ -6,15 +6,15 @@ export async function GET() {
     const query = sql();
 
     const images = await query`
-      SELECT ri.id, ri.name, ri.file_name, ri.mime_type, ri.created_at,
+      SELECT ri.id, ri.name, ri.file_name, ri.mime_type, ri.group_name, ri.created_at,
              (SELECT COUNT(*) FROM matching_rules WHERE image_id = ri.id) as rules_count
       FROM repository_images ri
-      ORDER BY ri.created_at DESC
+      ORDER BY ri.group_name NULLS LAST, ri.created_at DESC
     `;
 
     const rules = await query`
       SELECT id, image_id, brand_name, category, strain, strain_type,
-             product_name_contains, priority, created_at
+             product_name_keywords, priority, created_at
       FROM matching_rules
       ORDER BY priority DESC
     `;
@@ -32,6 +32,7 @@ export async function GET() {
       name: img.name,
       fileName: img.file_name,
       mimeType: img.mime_type,
+      groupName: img.group_name ?? null,
       createdAt: img.created_at,
       rulesCount: Number(img.rules_count),
       rules: (rulesByImage.get(img.id as number) ?? []).map((r) => ({
@@ -41,7 +42,7 @@ export async function GET() {
         category: r.category,
         strain: r.strain,
         strainType: r.strain_type,
-        productNameContains: r.product_name_contains,
+        productNameKeywords: r.product_name_keywords ?? null,
         priority: r.priority,
         createdAt: r.created_at,
       })),
@@ -60,11 +61,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { name, base64Image, fileName, mimeType } = (await req.json()) as {
+    const { name, base64Image, fileName, mimeType, groupName } = (await req.json()) as {
       name: string;
       base64Image: string;
       fileName: string;
       mimeType: string;
+      groupName?: string | null;
     };
 
     if (!name || !base64Image || !fileName || !mimeType) {
@@ -79,9 +81,10 @@ export async function POST(req: NextRequest) {
     const imageBuffer = Buffer.from(base64Image, "base64");
     const query = sql();
 
+    const group = groupName?.trim() || null;
     const result = await query`
-      INSERT INTO repository_images (name, file_name, mime_type, image_data)
-      VALUES (${name}, ${fileName}, ${mimeType}, ${imageBuffer})
+      INSERT INTO repository_images (name, file_name, mime_type, image_data, group_name)
+      VALUES (${name}, ${fileName}, ${mimeType}, ${imageBuffer}, ${group})
       RETURNING id
     `;
 
@@ -90,6 +93,7 @@ export async function POST(req: NextRequest) {
       name,
       fileName,
       mimeType,
+      groupName: group,
     });
   } catch (error) {
     const message =

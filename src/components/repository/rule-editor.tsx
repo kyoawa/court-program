@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import type { MatchingRule } from "@/lib/types";
 
@@ -35,11 +35,20 @@ export function RuleEditor({
   const [category, setCategory] = useState("");
   const [strain, setStrain] = useState("");
   const [strainType, setStrainType] = useState("");
-  const [productNameContains, setProductNameContains] = useState("");
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState("");
   const [adding, setAdding] = useState(false);
 
+  function addKeyword() {
+    const kw = keywordInput.trim();
+    if (kw && !keywords.includes(kw)) {
+      setKeywords([...keywords, kw]);
+    }
+    setKeywordInput("");
+  }
+
   async function handleAddRule() {
-    if (!brandName && !category && !strain && !strainType && !productNameContains) {
+    if (!brandName && !category && !strain && !strainType && keywords.length === 0) {
       toast.error("Set at least one filter field");
       return;
     }
@@ -55,7 +64,7 @@ export function RuleEditor({
           category: category || null,
           strain: strain || null,
           strainType: strainType || null,
-          productNameContains: productNameContains || null,
+          productNameKeywords: keywords.length > 0 ? keywords : null,
         }),
       });
       if (!res.ok) throw new Error("Failed to add rule");
@@ -64,7 +73,8 @@ export function RuleEditor({
       setCategory("");
       setStrain("");
       setStrainType("");
-      setProductNameContains("");
+      setKeywords([]);
+      setKeywordInput("");
       onChanged();
     } catch {
       toast.error("Failed to add rule");
@@ -118,9 +128,9 @@ export function RuleEditor({
                     Type: {rule.strainType}
                   </span>
                 )}
-                {rule.productNameContains && (
+                {rule.productNameKeywords && rule.productNameKeywords.length > 0 && (
                   <span className="bg-background rounded px-1.5 py-0.5">
-                    Name contains: {rule.productNameContains}
+                    Name contains: {rule.productNameKeywords.join(" AND ")}
                   </span>
                 )}
               </span>
@@ -187,12 +197,39 @@ export function RuleEditor({
           </SelectContent>
         </Select>
 
-        <Input
-          placeholder="Product name contains..."
-          className="text-xs h-8 col-span-2"
-          value={productNameContains}
-          onChange={(e) => setProductNameContains(e.target.value)}
-        />
+        <div className="col-span-2 space-y-1">
+          {keywords.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {keywords.map((kw, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-0.5 bg-primary/10 text-primary rounded px-1.5 py-0.5 text-xs"
+                >
+                  {kw}
+                  <button
+                    type="button"
+                    className="hover:text-destructive"
+                    onClick={() => setKeywords(keywords.filter((_, j) => j !== i))}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <Input
+            placeholder="Product name keyword, press Enter to add..."
+            className="text-xs h-8"
+            value={keywordInput}
+            onChange={(e) => setKeywordInput(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === ",") && keywordInput.trim()) {
+                e.preventDefault();
+                addKeyword();
+              }
+            }}
+          />
+        </div>
       </div>
 
       <Button

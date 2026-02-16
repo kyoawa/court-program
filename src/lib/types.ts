@@ -84,6 +84,7 @@ export interface RepositoryImage {
   name: string;
   fileName: string;
   mimeType: string;
+  groupName: string | null;
   thumbnailDataUrl: string | null;
   createdAt: string;
   rules: MatchingRule[];
@@ -96,7 +97,7 @@ export interface MatchingRule {
   category: string | null;
   strain: string | null;
   strainType: string | null;
-  productNameContains: string | null;
+  productNameKeywords: string[] | null;
   priority: number;
   createdAt: string;
 }

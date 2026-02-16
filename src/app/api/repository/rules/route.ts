@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
       category?: string | null;
       strain?: string | null;
       strainType?: string | null;
-      productNameContains?: string | null;
+      productNameKeywords?: string[] | null;
       priority?: number;
     };
 
@@ -20,27 +20,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const fields = [
-      body.brandName,
-      body.category,
-      body.strain,
-      body.strainType,
-      body.productNameContains,
-    ];
-    const autoP = fields.filter((f) => f != null && f !== "").length;
-    const priority = body.priority ?? autoP;
-
     const brandName = body.brandName || null;
     const category = body.category || null;
     const strain = body.strain || null;
     const strainType = body.strainType || null;
-    const productNameContains = body.productNameContains || null;
+    const productNameKeywords =
+      body.productNameKeywords && body.productNameKeywords.length > 0
+        ? body.productNameKeywords
+        : null;
+
+    const fields = [
+      brandName,
+      category,
+      strain,
+      strainType,
+      productNameKeywords,
+    ];
+    const autoP = fields.filter((f) => f != null).length;
+    const priority = body.priority ?? autoP;
 
     const query = sql();
     const result = await query`
       INSERT INTO matching_rules
-        (image_id, brand_name, category, strain, strain_type, product_name_contains, priority)
-      VALUES (${body.imageId}, ${brandName}, ${category}, ${strain}, ${strainType}, ${productNameContains}, ${priority})
+        (image_id, brand_name, category, strain, strain_type, product_name_keywords, priority)
+      VALUES (${body.imageId}, ${brandName}, ${category}, ${strain}, ${strainType}, ${productNameKeywords}, ${priority})
       RETURNING id
     `;
 
@@ -51,7 +54,7 @@ export async function POST(req: NextRequest) {
       category,
       strain,
       strainType,
-      productNameContains,
+      productNameKeywords,
       priority,
     });
   } catch (error) {

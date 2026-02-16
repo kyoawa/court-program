@@ -51,4 +51,27 @@ export async function initSchema() {
   await query`
     CREATE INDEX IF NOT EXISTS idx_rules_category ON matching_rules(category)
   `;
+
+  // Migration: add group_name to repository_images
+  await query`
+    ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS group_name TEXT
+  `;
+
+  // Migration: add product_name_keywords array column
+  await query`
+    ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS product_name_keywords TEXT[]
+  `;
+
+  // Migration: copy old scalar values into new array column
+  await query`
+    UPDATE matching_rules
+    SET product_name_keywords = ARRAY[product_name_contains]
+    WHERE product_name_contains IS NOT NULL
+      AND product_name_keywords IS NULL
+  `;
+
+  // Migration: drop old column
+  await query`
+    ALTER TABLE matching_rules DROP COLUMN IF EXISTS product_name_contains
+  `;
 }
