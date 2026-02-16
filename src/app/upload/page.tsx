@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useMemo, useCallback, useEffect } from "react";
+import { Suspense, useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
@@ -81,63 +81,24 @@ function UploadPageContent() {
     [products, selectedIds]
   );
 
-  const matchFileToProduct = useCallback(
-    (file: File): ProductDetail | null => {
-      const name = file.name.replace(/\.[^.]+$/, "").toLowerCase();
-      const skuMatch = products.find(
-        (p) => p.sku && p.sku.toLowerCase() === name
-      );
-      if (skuMatch) return skuMatch;
-      const nameMatch = products.find(
-        (p) => p.productName && name.includes(p.productName.toLowerCase())
-      );
-      return nameMatch ?? null;
-    },
-    [products]
-  );
-
-  function handleFilesAutoMatch(files: File[]) {
-    let matched = 0;
-    let unmatched = 0;
-
-    for (const file of files) {
-      const product = matchFileToProduct(file);
-      if (product) {
-        queue.addItems([
-          {
-            productId: product.productId,
-            productName: product.productName ?? "Unknown",
-            source: { type: "file" as const, file },
-          },
-        ]);
-        matched++;
-      } else if (selectedIds.size === 1) {
-        const fallback = selectedProducts[0];
-        queue.addItems([
-          {
-            productId: fallback.productId,
-            productName: fallback.productName ?? "Unknown",
-            source: { type: "file" as const, file },
-          },
-        ]);
-        matched++;
-      } else {
-        unmatched++;
-      }
+  function handleFilesSelected(files: File[]) {
+    if (selectedIds.size === 0) {
+      toast.error("Select at least one product first");
+      return;
     }
 
-    if (matched > 0) toast.success(`Queued ${matched} image(s)`);
-    if (unmatched > 0) {
-      if (selectedIds.size > 1) {
-        toast.error(
-          `${unmatched} file(s) could not be auto-matched. Select exactly 1 product for fallback assignment, or name files by SKU.`
-        );
-      } else {
-        toast.error(
-          `${unmatched} file(s) could not be matched. Select a product first or name files by SKU.`
-        );
-      }
-    }
+    const items = selectedProducts.flatMap((product) =>
+      files.map((file) => ({
+        productId: product.productId,
+        productName: product.productName ?? "Unknown",
+        source: { type: "file" as const, file },
+      }))
+    );
+
+    queue.addItems(items);
+    toast.success(
+      `Queued ${files.length} file(s) for ${selectedProducts.length} product(s) (${items.length} total)`
+    );
   }
 
   function handleAddUrls() {
@@ -366,14 +327,14 @@ function UploadPageContent() {
 
           <TabsContent value="files" className="space-y-3 mt-3">
             <p className="text-sm text-muted-foreground">
-              Drop files here. Files named by SKU will auto-match to products.
-              {selectedIds.size === 1
-                ? " Unmatched files go to the selected product."
-                : selectedIds.size > 1
-                  ? " Select exactly 1 product for unmatched file fallback."
-                  : " Select a product for unmatched files."}
+              Drop files here. They will be uploaded to{" "}
+              {selectedIds.size === 0
+                ? "the selected product(s)."
+                : selectedIds.size === 1
+                  ? `${selectedProducts[0]?.productName ?? "the selected product"}.`
+                  : `all ${selectedIds.size} selected products.`}
             </p>
-            <FileDropZone onFilesSelected={handleFilesAutoMatch} />
+            <FileDropZone onFilesSelected={handleFilesSelected} />
           </TabsContent>
 
           <TabsContent value="urls" className="space-y-3 mt-3">
