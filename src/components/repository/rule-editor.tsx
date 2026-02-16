@@ -67,7 +67,10 @@ export function RuleEditor({
           productNameKeywords: keywords.length > 0 ? keywords : null,
         }),
       });
-      if (!res.ok) throw new Error("Failed to add rule");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to add rule");
+      }
       toast.success("Rule added");
       setBrandName("");
       setCategory("");
@@ -76,8 +79,8 @@ export function RuleEditor({
       setKeywords([]);
       setKeywordInput("");
       onChanged();
-    } catch {
-      toast.error("Failed to add rule");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add rule");
     } finally {
       setAdding(false);
     }

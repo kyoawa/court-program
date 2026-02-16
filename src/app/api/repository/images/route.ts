@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { sql } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const query = sql();
@@ -48,7 +50,11 @@ export async function GET() {
       })),
     }));
 
-    return Response.json(result);
+    return Response.json(result, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to list images";

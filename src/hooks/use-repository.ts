@@ -4,7 +4,7 @@ import useSWR from "swr";
 import type { RepositoryImage } from "@/lib/types";
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || `Request failed: ${res.status}`);
@@ -18,7 +18,7 @@ export function useRepository() {
     fetcher,
     {
       revalidateOnFocus: false,
-      dedupingInterval: 30000,
+      dedupingInterval: 5000,
     }
   );
 
