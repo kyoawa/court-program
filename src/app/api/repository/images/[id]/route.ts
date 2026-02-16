@@ -18,22 +18,30 @@ export async function GET(
     }
 
     const row = rows[0];
-    // Neon returns bytea as a hex string like \x89504e...
-    let imageData: Buffer;
-    if (row.image_data instanceof Buffer) {
-      imageData = row.image_data;
-    } else if (typeof row.image_data === "string") {
-      const hex = row.image_data as string;
-      if (hex.startsWith("\\x")) {
-        imageData = Buffer.from(hex.slice(2), "hex");
+    // Neon HTTP driver returns bytea as a hex string like \x89504e...
+    let bytes: Uint8Array;
+    const data = row.image_data;
+    if (data instanceof Uint8Array) {
+      bytes = data;
+    } else if (typeof data === "string") {
+      if (data.startsWith("\\x")) {
+        const hex = data.slice(2);
+        const arr = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+          arr[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+        }
+        bytes = arr;
       } else {
-        imageData = Buffer.from(hex, "base64");
+        // base64
+        bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
       }
+    } else if (data instanceof ArrayBuffer) {
+      bytes = new Uint8Array(data);
     } else {
-      imageData = Buffer.from(row.image_data as ArrayBuffer);
+      bytes = new Uint8Array(Buffer.from(data));
     }
 
-    return new Response(new Uint8Array(imageData), {
+    return new Response(bytes as unknown as BodyInit, {
       headers: {
         "Content-Type": row.mime_type as string,
         "Cache-Control": "public, max-age=31536000, immutable",

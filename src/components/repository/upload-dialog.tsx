@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -83,6 +84,9 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Image to Repository</DialogTitle>
+          <DialogDescription>
+            Upload an image and give it a name to use with matching rules.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div>
