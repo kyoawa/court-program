@@ -229,7 +229,7 @@ export function ProductTable({
                   <TableCell>
                     <Link
                       href={`/products/${product.productId}`}
-                      className="font-medium hover:underline"
+                      className="font-medium text-dutchie-blue hover:underline"
                     >
                       {product.productName ?? "Unnamed"}
                     </Link>
