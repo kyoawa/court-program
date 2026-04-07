@@ -198,6 +198,105 @@ export function useImageSearch() {
     []
   );
 
+  const retryFailed = useCallback(async () => {
+    const errored = results.filter((r) => r.status === "error");
+    if (errored.length === 0) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setIsSearching(true);
+    const totalToRetry = errored.length;
+    setProgress({ current: 0, total: totalToRetry });
+
+    // Reset errored products back to pending
+    setResults((prev) =>
+      prev.map((r) =>
+        r.status === "error"
+          ? { ...r, status: "pending" as const, error: undefined, images: [] }
+          : r
+      )
+    );
+
+    const retryProducts: ProductSearchRequest[] = errored.map((r) => ({
+      productId: r.productId,
+      productName: r.productName,
+      brandName: null,
+      category: null,
+      strain: null,
+      customQuery: r.query || undefined,
+    }));
+
+    try {
+      const res = await fetch("/api/images/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products: retryProducts }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) throw new Error(`Retry request failed: ${res.status}`);
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let done = 0;
+
+      if (reader) {
+        let buffer = "";
+        while (true) {
+          const { done: streamDone, value } = await reader.read();
+          if (streamDone) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === "searching") {
+              setResults((prev) =>
+                prev.map((r) =>
+                  r.productId === data.productId
+                    ? { ...r, status: "searching" as const, query: data.query }
+                    : r
+                )
+              );
+            } else if (data.type === "results") {
+              done++;
+              setProgress({ current: done, total: totalToRetry });
+              setResults((prev) =>
+                prev.map((r) =>
+                  r.productId === data.productId
+                    ? { ...r, status: "done" as const, images: data.images }
+                    : r
+                )
+              );
+            } else if (data.type === "search_error") {
+              done++;
+              setProgress({ current: done, total: totalToRetry });
+              setResults((prev) =>
+                prev.map((r) =>
+                  r.productId === data.productId
+                    ? { ...r, status: "error" as const, error: data.error }
+                    : r
+                )
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        console.error("Retry failed:", err);
+      }
+    } finally {
+      setIsSearching(false);
+    }
+  }, [results]);
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     setIsSearching(false);
@@ -210,5 +309,5 @@ export function useImageSearch() {
     setProgress({ current: 0, total: 0 });
   }, []);
 
-  return { results, isSearching, progress, startSearch, searchSingle, stop, reset };
+  return { results, isSearching, progress, startSearch, searchSingle, retryFailed, stop, reset };
 }

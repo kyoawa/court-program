@@ -126,6 +126,7 @@ export default function RecentProductsPage() {
         results={imageSearch.results}
         isSearching={imageSearch.isSearching}
         progress={imageSearch.progress}
+        onRetryFailed={imageSearch.retryFailed}
       />
     </div>
   );
