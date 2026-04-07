@@ -3,6 +3,11 @@ interface CacheEntry<T> {
   expiry: number;
 }
 
+export interface StaleResult<T> {
+  value: T;
+  isStale: boolean;
+}
+
 const store = new Map<string, CacheEntry<unknown>>();
 
 export function cacheGet<T>(key: string): T | null {
@@ -13,6 +18,15 @@ export function cacheGet<T>(key: string): T | null {
     return null;
   }
   return entry.data as T;
+}
+
+export function cacheGetStale<T>(key: string): StaleResult<T> | null {
+  const entry = store.get(key);
+  if (!entry) return null;
+  return {
+    value: entry.data as T,
+    isStale: Date.now() > entry.expiry,
+  };
 }
 
 export function cacheSet<T>(key: string, data: T, ttlMs: number): void {

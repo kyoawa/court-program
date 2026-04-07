@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -28,9 +28,22 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Clean up Object URL when preview changes or component unmounts
+  useEffect(() => {
+    return () => {
+      if (preview) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
+
   function handleFileSelected(files: File[]) {
     if (files.length === 0) return;
     const f = files[0];
+    // Revoke old URL before creating a new one
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
     setFile(f);
     setPreview(URL.createObjectURL(f));
     if (!name) {
@@ -60,6 +73,7 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
       });
       if (!res.ok) throw new Error("Failed to upload");
       toast.success("Image added to repository");
+      if (preview) URL.revokeObjectURL(preview);
       setOpen(false);
       setName("");
       setGroupName("");
@@ -116,6 +130,7 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  if (preview) URL.revokeObjectURL(preview);
                   setFile(null);
                   setPreview(null);
                 }}

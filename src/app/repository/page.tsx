@@ -9,6 +9,14 @@ import { MatchPreview } from "@/components/repository/match-preview";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Trash2, ChevronDown, ChevronRight, Loader2, ImageOff } from "lucide-react";
 import { toast } from "sonner";
 import type { RepositoryImage } from "@/lib/types";
@@ -19,6 +27,7 @@ export default function RepositoryPage() {
     isActive: true,
   });
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RepositoryImage | null>(null);
 
   const brands = useMemo(() => {
     const set = new Set<string>();
@@ -58,13 +67,19 @@ export default function RepositoryPage() {
     return { groups, ungrouped };
   }, [images]);
 
-  async function handleDelete(image: RepositoryImage) {
+  function confirmDelete(image: RepositoryImage) {
+    setDeleteTarget(image);
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
     try {
-      const res = await fetch(`/api/repository/images/${image.id}`, {
+      const res = await fetch(`/api/repository/images/${deleteTarget.id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete");
-      toast.success(`Deleted "${image.name}"`);
+      toast.success(`Deleted "${deleteTarget.name}"`);
+      setDeleteTarget(null);
       mutate();
     } catch {
       toast.error("Failed to delete image");
@@ -106,7 +121,7 @@ export default function RepositoryPage() {
             className="h-8 w-8 p-0"
             onClick={(e) => {
               e.stopPropagation();
-              handleDelete(image);
+              confirmDelete(image);
             }}
           >
             <Trash2 className="h-4 w-4" />
@@ -204,6 +219,27 @@ export default function RepositoryPage() {
           />
         </>
       )}
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Image</DialogTitle>
+            <DialogDescription>
+              {deleteTarget && deleteTarget.rules.length > 0
+                ? `This image has ${deleteTarget.rules.length} matching rule${deleteTarget.rules.length !== 1 ? "s" : ""} that will also be deleted. Continue?`
+                : "Delete this image?"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -105,6 +105,8 @@ async function scrapeGoogleImages(
   return results.slice(0, maxResults);
 }
 
+const CONCURRENCY = 3;
+
 export async function POST(req: NextRequest) {
   try {
     const { products } = (await req.json()) as {
@@ -122,8 +124,12 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         const encoder = new TextEncoder();
 
-        for (let i = 0; i < products.length; i++) {
-          const product = products[i];
+        async function processProduct(product: ProductSearchRequest, index: number) {
+          // Stagger requests: each slot waits its offset before starting
+          if (index >= CONCURRENCY) {
+            await delay(IMAGE_SEARCH_DELAY_MS);
+          }
+
           const query = product.customQuery?.trim() || buildSearchQuery(product);
 
           controller.enqueue(
@@ -163,13 +169,45 @@ export async function POST(req: NextRequest) {
               )
             );
           }
-
-          // Delay between requests to avoid rate limiting
-          if (i < products.length - 1) {
-            await delay(IMAGE_SEARCH_DELAY_MS);
-          }
         }
 
+        // Semaphore-based concurrency pool of CONCURRENCY
+        let running = 0;
+        let nextIndex = 0;
+        const resolvers: (() => void)[] = [];
+
+        function releaseSlot() {
+          running--;
+          const next = resolvers.shift();
+          if (next) next();
+        }
+
+        async function acquireSlot(): Promise<void> {
+          if (running < CONCURRENCY) {
+            running++;
+            return;
+          }
+          return new Promise<void>((resolve) => {
+            resolvers.push(() => {
+              running++;
+              resolve();
+            });
+          });
+        }
+
+        const tasks: Promise<void>[] = [];
+        for (let i = 0; i < products.length; i++) {
+          await acquireSlot();
+          const idx = nextIndex++;
+          // Stagger start: each product in the pool gets a delay based on pool position
+          const staggerDelay = idx < CONCURRENCY ? idx * IMAGE_SEARCH_DELAY_MS : IMAGE_SEARCH_DELAY_MS;
+          const task = delay(staggerDelay)
+            .then(() => processProduct(products[i], idx))
+            .finally(releaseSlot);
+          tasks.push(task);
+        }
+
+        await Promise.all(tasks);
         controller.enqueue(encoder.encode(encode({ type: "done" })));
         controller.close();
       },

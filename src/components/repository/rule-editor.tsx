@@ -10,9 +10,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2, X, Eye, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { MatchingRule } from "@/lib/types";
+
+interface PreviewResult {
+  matchCount: number;
+  sampleProducts: { id: string; name: string }[];
+}
 
 interface RuleEditorProps {
   imageId: number;
@@ -38,6 +43,8 @@ export function RuleEditor({
   const [keywords, setKeywords] = useState<string[]>([]);
   const [keywordInput, setKeywordInput] = useState("");
   const [adding, setAdding] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
 
   function addKeyword() {
     const kw = keywordInput.trim();
@@ -83,6 +90,35 @@ export function RuleEditor({
       toast.error(err instanceof Error ? err.message : "Failed to add rule");
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function handlePreview() {
+    if (!brandName && !category && !strain && !strainType && keywords.length === 0) {
+      toast.error("Set at least one filter field to preview");
+      return;
+    }
+    setPreviewing(true);
+    setPreview(null);
+    try {
+      const res = await fetch("/api/repository/rules/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandName: brandName || null,
+          category: category || null,
+          strain: strain || null,
+          strainType: strainType || null,
+          productNameKeywords: keywords.length > 0 ? keywords : null,
+        }),
+      });
+      if (!res.ok) throw new Error("Preview failed");
+      const data = await res.json();
+      setPreview(data);
+    } catch {
+      toast.error("Failed to preview matches");
+    } finally {
+      setPreviewing(false);
     }
   }
 
@@ -244,15 +280,50 @@ export function RuleEditor({
         </div>
       </div>
 
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleAddRule}
-        disabled={adding}
-      >
-        <Plus className="h-3 w-3 mr-1" />
-        Add Rule
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAddRule}
+          disabled={adding}
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          Add Rule
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handlePreview}
+          disabled={previewing}
+        >
+          {previewing ? (
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          ) : (
+            <Eye className="h-3 w-3 mr-1" />
+          )}
+          Preview Matches
+        </Button>
+      </div>
+
+      {preview && (
+        <div className="rounded-md border bg-muted/50 p-3 text-xs space-y-1">
+          <p className="font-medium">
+            {preview.matchCount} product{preview.matchCount !== 1 ? "s" : ""} would match
+          </p>
+          {preview.sampleProducts.length > 0 && (
+            <ul className="list-disc list-inside text-muted-foreground">
+              {preview.sampleProducts.map((p) => (
+                <li key={p.id}>{p.name}</li>
+              ))}
+              {preview.matchCount > 5 && (
+                <li className="text-muted-foreground/60">
+                  ...and {preview.matchCount - 5} more
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

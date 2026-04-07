@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { sql } from "@/lib/db";
+import { SUPPORTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+      return new Response(
+        JSON.stringify({
+          error: `Unsupported image type: ${mimeType}. Allowed: ${SUPPORTED_IMAGE_TYPES.join(", ")}`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const imageBuffer = Buffer.from(base64Image, "base64");
+    const maxBytes = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+    if (imageBuffer.length > maxBytes) {
+      return new Response(
+        JSON.stringify({
+          error: `Image too large (${(imageBuffer.length / 1024 / 1024).toFixed(1)}MB). Maximum: ${MAX_IMAGE_SIZE_MB}MB`,
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const query = sql();
 
     const group = groupName?.trim() || null;

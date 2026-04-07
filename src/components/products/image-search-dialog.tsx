@@ -13,8 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Loader2, AlertCircle, ImageOff, Check, Search } from "lucide-react";
+import { Loader2, AlertCircle, ImageOff, Check, Search, RotateCcw, FolderPlus } from "lucide-react";
+import { toast } from "sonner";
 import type { ProductSearchResult } from "@/hooks/use-image-search";
 
 interface ImageSearchDialogProps {
@@ -24,6 +26,7 @@ interface ImageSearchDialogProps {
   isSearching: boolean;
   progress: { current: number; total: number };
   onSearchSingle?: (productId: number, customQuery: string) => void;
+  onRetryFailed?: () => void;
 }
 
 export function ImageSearchDialog({
@@ -33,6 +36,7 @@ export function ImageSearchDialog({
   isSearching,
   progress,
   onSearchSingle,
+  onRetryFailed,
 }: ImageSearchDialogProps) {
   const router = useRouter();
   // productId -> selected image URL
@@ -45,6 +49,11 @@ export function ImageSearchDialog({
 
   const completedResults = useMemo(
     () => results.filter((r) => r.status === "done" || r.status === "error"),
+    [results]
+  );
+
+  const hasErrors = useMemo(
+    () => results.some((r) => r.status === "error"),
     [results]
   );
 
@@ -82,7 +91,7 @@ export function ImageSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-w-[calc(100%-1rem)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Web Image Search Results</DialogTitle>
           <DialogDescription>
@@ -131,13 +140,25 @@ export function ImageSearchDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleApprove} disabled={selectedCount === 0}>
-            Queue {selectedCount} Image{selectedCount !== 1 ? "s" : ""} for
-            Upload
-          </Button>
+          <div className="flex items-center gap-2 w-full justify-between flex-wrap">
+            <div>
+              {!isSearching && hasErrors && onRetryFailed && (
+                <Button variant="outline" size="sm" onClick={onRetryFailed}>
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Retry Failed
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleClose}>
+                Cancel
+              </Button>
+              <Button onClick={handleApprove} disabled={selectedCount === 0}>
+                Queue {selectedCount} Image{selectedCount !== 1 ? "s" : ""} for
+                Upload
+              </Button>
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -157,11 +178,54 @@ function ProductResultCard({
 }) {
   const [customQuery, setCustomQuery] = useState("");
   const [showCustom, setShowCustom] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
+  const [savingUrl, setSavingUrl] = useState<string | null>(null);
+
+  function handleImageLoad(url: string) {
+    setLoadedImages((prev) => new Set(prev).add(url));
+  }
 
   function handleCustomSearch() {
     if (!customQuery.trim() || !onSearchCustom) return;
     onSearchCustom(customQuery.trim());
     setShowCustom(false);
+  }
+
+  async function handleSaveToRepo(imageUrl: string) {
+    setSavingUrl(imageUrl);
+    try {
+      // Proxy-fetch the image
+      const proxyRes = await fetch("/api/images/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: imageUrl }),
+      });
+      if (!proxyRes.ok) throw new Error("Failed to fetch image");
+      const { base64, mimeType } = await proxyRes.json();
+
+      const ext = mimeType === "image/png" ? ".png" : mimeType === "image/webp" ? ".webp" : ".jpg";
+      const fileName = `${(result.productName || "image").replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50)}${ext}`;
+
+      // Save to repository
+      const saveRes = await fetch("/api/repository/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: result.productName || "Search Result",
+          base64Image: base64,
+          fileName,
+          mimeType,
+          groupName: null,
+        }),
+      });
+      if (!saveRes.ok) throw new Error("Failed to save image");
+
+      toast.success("Image saved to repository");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save to repository");
+    } finally {
+      setSavingUrl(null);
+    }
   }
 
   return (
@@ -211,32 +275,53 @@ function ProductResultCard({
       )}
 
       {result.images.length > 0 && (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
           {result.images.map((img, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => onSelectImage(img.originalUrl)}
-              className={cn(
-                "relative rounded-md border-2 overflow-hidden aspect-square cursor-pointer transition-all hover:opacity-90",
-                selectedUrl === img.originalUrl
-                  ? "border-primary ring-2 ring-primary/30"
-                  : "border-transparent"
-              )}
-            >
-              <img
-                src={img.thumbnailUrl}
-                alt={img.title || `Result ${i + 1}`}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-              {selectedUrl === img.originalUrl && (
-                <div className="absolute top-1 right-1 bg-primary text-primary-foreground rounded-full p-0.5">
-                  <Check className="h-3 w-3" />
-                </div>
-              )}
-            </button>
+            <div key={i} className="relative group">
+              <button
+                type="button"
+                onClick={() => onSelectImage(img.originalUrl)}
+                className={cn(
+                  "relative rounded-md border-2 overflow-hidden aspect-square cursor-pointer transition-all hover:opacity-90 w-full",
+                  selectedUrl === img.originalUrl
+                    ? "border-primary ring-2 ring-primary/30"
+                    : "border-transparent"
+                )}
+              >
+                {!loadedImages.has(img.thumbnailUrl) && (
+                  <Skeleton className="absolute inset-0 rounded-md" />
+                )}
+                <img
+                  src={img.thumbnailUrl}
+                  alt={img.title || `Result ${i + 1}`}
+                  className={cn(
+                    "w-full h-full object-cover transition-opacity",
+                    loadedImages.has(img.thumbnailUrl) ? "opacity-100" : "opacity-0"
+                  )}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onLoad={() => handleImageLoad(img.thumbnailUrl)}
+                />
+                {selectedUrl === img.originalUrl && (
+                  <div className="absolute top-1 right-1 bg-primary text-primary-foreground rounded-full p-0.5">
+                    <Check className="h-3 w-3" />
+                  </div>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveToRepo(img.originalUrl)}
+                disabled={savingUrl === img.originalUrl}
+                className="absolute bottom-1 left-1 bg-background/80 hover:bg-background text-foreground rounded p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Save to Repository"
+              >
+                {savingUrl === img.originalUrl ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <FolderPlus className="h-3 w-3" />
+                )}
+              </button>
+            </div>
           ))}
         </div>
       )}

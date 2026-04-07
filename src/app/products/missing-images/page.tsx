@@ -324,6 +324,7 @@ export default function MissingImagesPage() {
         isSearching={imageSearch.isSearching}
         progress={imageSearch.progress}
         onSearchSingle={imageSearch.searchSingle}
+        onRetryFailed={imageSearch.retryFailed}
       />
     </div>
   );
