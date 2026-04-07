@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import * as cheerio from "cheerio";
 import { buildSearchQuery } from "@/lib/search-query";
 import {
   IMAGE_SEARCH_DELAY_MS,
@@ -7,102 +6,53 @@ import {
 } from "@/lib/constants";
 import type { ImageSearchResult, ProductSearchRequest } from "@/lib/types";
 
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-];
-
 function encode(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
-}
-
-function randomUserAgent(): string {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function scrapeGoogleImages(
+async function searchBraveImages(
   query: string,
   maxResults: number
 ): Promise<ImageSearchResult[]> {
-  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch&hl=en`;
+  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+  if (!apiKey) {
+    throw new Error("BRAVE_SEARCH_API_KEY is not configured");
+  }
 
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": randomUserAgent(),
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.5",
-    },
+  const params = new URLSearchParams({
+    q: query,
+    count: String(Math.min(maxResults, 20)),
+    safesearch: "off",
   });
 
-  if (!response.ok) {
-    throw new Error(`Google returned ${response.status}`);
-  }
-
-  const html = await response.text();
-
-  if (html.includes("unusual traffic") || html.includes("captcha")) {
-    throw new Error("Rate limited by Google. Try again later.");
-  }
-
-  const results: ImageSearchResult[] = [];
-  const seen = new Set<string>();
-
-  // Strategy 1: Extract full-size image URLs from embedded data in the HTML
-  // Google embeds image URLs as ["URL", height, width] arrays throughout the page
-  const urlMatches = html.matchAll(
-    /\["(https?:\/\/[^"]+?\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)",\s*(\d+),\s*(\d+)\]/gi
-  );
-  for (const urlMatch of urlMatches) {
-    // Unescape unicode sequences like \u003d -> =
-    const imageUrl = urlMatch[1].replace(
-      /\\u([0-9a-fA-F]{4})/g,
-      (_, code) => String.fromCharCode(parseInt(code, 16))
-    );
-    if (
-      !imageUrl.includes("gstatic.com") &&
-      !imageUrl.includes("google.com") &&
-      !seen.has(imageUrl)
-    ) {
-      seen.add(imageUrl);
-      results.push({
-        originalUrl: imageUrl,
-        thumbnailUrl: imageUrl,
-        title: "",
-      });
+  const response = await fetch(
+    `https://api.search.brave.com/res/v1/images/search?${params}`,
+    {
+      headers: {
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token": apiKey,
+      },
     }
-    if (results.length >= maxResults) break;
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Brave API error ${response.status}: ${text}`);
   }
 
-  // Strategy 2: Fallback - parse img tags with cheerio
-  if (results.length === 0) {
-    const $ = cheerio.load(html);
-    $("img").each((_, el) => {
-      if (results.length >= maxResults) return false;
-      const src = $(el).attr("src") || $(el).attr("data-src");
-      if (
-        src &&
-        src.startsWith("http") &&
-        !src.includes("gstatic.com") &&
-        !src.includes("google.com") &&
-        !seen.has(src)
-      ) {
-        seen.add(src);
-        results.push({
-          originalUrl: src,
-          thumbnailUrl: src,
-          title: $(el).attr("alt") || "",
-        });
-      }
-    });
-  }
+  const data = await response.json();
 
-  return results.slice(0, maxResults);
+  return (data.results || []).slice(0, maxResults).map((r: any) => ({
+    originalUrl: r.properties?.url || r.thumbnail?.src || "",
+    thumbnailUrl: r.thumbnail?.src || r.properties?.url || "",
+    title: r.title || "",
+    source: r.source || "",
+  }));
 }
 
 const CONCURRENCY = 3;
@@ -143,7 +93,7 @@ export async function POST(req: NextRequest) {
           );
 
           try {
-            const images = await scrapeGoogleImages(
+            const images = await searchBraveImages(
               query,
               IMAGE_SEARCH_MAX_RESULTS
             );

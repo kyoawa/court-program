@@ -69,6 +69,7 @@ export interface ImageSearchResult {
   thumbnailUrl: string;
   originalUrl: string;
   title: string;
+  source?: string;
 }
 
 export interface ProductSearchRequest {
