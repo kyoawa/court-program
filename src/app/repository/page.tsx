@@ -17,7 +17,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, ChevronDown, ChevronRight, Loader2, ImageOff } from "lucide-react";
+import { Trash2, ChevronDown, ChevronRight, Loader2, ImageOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import type { RepositoryImage } from "@/lib/types";
 
@@ -28,6 +28,7 @@ export default function RepositoryPage() {
   });
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RepositoryImage | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<RepositoryImage | null>(null);
 
   const brands = useMemo(() => {
     const set = new Set<string>();
@@ -119,6 +120,19 @@ export default function RepositoryPage() {
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0"
+            title="Replace image"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReplaceTarget(image);
+            }}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            title="Delete image"
             onClick={(e) => {
               e.stopPropagation();
               confirmDelete(image);
@@ -218,6 +232,23 @@ export default function RepositoryPage() {
             productsLoading={productsLoading}
           />
         </>
+      )}
+
+      {replaceTarget && (
+        <UploadDialog
+          replaceImageId={replaceTarget.id}
+          initialName={replaceTarget.name}
+          initialGroupName={replaceTarget.groupName}
+          hideTrigger
+          open={!!replaceTarget}
+          onOpenChange={(open) => {
+            if (!open) setReplaceTarget(null);
+          }}
+          onUploaded={() => {
+            setReplaceTarget(null);
+            mutate();
+          }}
+        />
       )}
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -26,7 +26,7 @@ export default function RecentProductsPage() {
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
   const fromDate = useMemo(() => getDaysAgoISO(days), [days]);
-  const { products, isLoading } = useProducts({
+  const { products, isLoading, mutate } = useProducts({
     fromLastModifiedDateUTC: fromDate,
     isActive: true,
   });
@@ -115,6 +115,7 @@ export default function RecentProductsPage() {
         onSelectionChange={setSelectedIds}
         showNewBadge
         newSinceDays={days}
+        onProductsChanged={() => mutate()}
       />
 
       <ImageSearchDialog

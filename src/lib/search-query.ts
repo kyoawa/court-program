@@ -25,13 +25,13 @@ export function buildSearchQuery(product: {
   const strain = (product.strain ?? "").trim();
   const cat = (product.category ?? "").toLowerCase().trim();
 
-  // Flower / Deli Flower: prioritize strain name + bud-specific sources
+  // Flower / Deli Flower: prioritize strain name, restrict to Leafly's image CDN for high-quality strain photos
   if (cat.includes("flower") || cat.includes("deli")) {
     if (strain) {
-      return `${strain} cannabis strain bud site:leafly.com OR site:allbud.com OR site:weedmaps.com`;
+      return `${strain} site:images.leafly.com`;
     }
     const parts = [brand, name].filter(Boolean).join(" ");
-    return `${parts} cannabis flower bud`;
+    return `${parts} cannabis bud site:images.leafly.com`;
   }
 
   // Pre-rolls: strain-focused

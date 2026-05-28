@@ -39,7 +39,7 @@ export default function MissingImagesPage() {
   const [repoProgress, setRepoProgress] = useState({ done: 0, total: 0 });
 
   const fromDate = useMemo(() => getDaysAgoISO(days), [days]);
-  const { products, isLoading } = useProducts({
+  const { products, isLoading, mutate } = useProducts({
     fromLastModifiedDateUTC: fromDate,
     isActive: true,
   });
@@ -312,6 +312,7 @@ export default function MissingImagesPage() {
         newSinceDays={days > 0 ? days : undefined}
         inventory={inventory}
         showInventory
+        onProductsChanged={() => mutate()}
       />
 
       <ImageSearchDialog
