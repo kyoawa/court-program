@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
-import { sql } from "@/lib/db";
+import { sql, ensureSchema } from "@/lib/db";
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSchema();
     const { id } = await params;
     const imageId = Number(id);
     if (!Number.isFinite(imageId)) {

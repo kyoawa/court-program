@@ -11,8 +11,25 @@ export function sql() {
 }
 
 /**
+ * Idempotent schema setup. Memoized per process so we can safely call it
+ * from any route's hot path — the actual ALTER/CREATE statements only run
+ * on the first invocation of each cold start.
+ */
+let schemaPromise: Promise<void> | null = null;
+export function ensureSchema(): Promise<void> {
+  if (!schemaPromise) {
+    schemaPromise = initSchema().catch((err) => {
+      // Reset on failure so the next request can retry.
+      schemaPromise = null;
+      throw err;
+    });
+  }
+  return schemaPromise;
+}
+
+/**
  * Run this once to set up the schema.
- * Called from /api/repository/setup route.
+ * Called from /api/repository/setup route and from ensureSchema().
  */
 export async function initSchema() {
   const query = sql();
