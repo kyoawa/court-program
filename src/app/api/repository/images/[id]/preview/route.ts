@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { sql } from "@/lib/db";
+import { sql, ensureSchema } from "@/lib/db";
 
 interface RuleRow {
   id: number;
@@ -37,6 +37,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSchema();
     const { id } = await params;
     const imageId = Number(id);
     if (!Number.isFinite(imageId)) {

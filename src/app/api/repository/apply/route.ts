@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   sql,
+  ensureSchema,
   recordUploadedImage,
   findUploadedImageIdsByProduct,
   deleteUploadedImageRecord,
@@ -20,6 +21,7 @@ function encode(data: Record<string, unknown>): string {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureSchema();
     const { items, overwriteExisting, location } = (await req.json()) as {
       items: ApplyItem[];
       overwriteExisting?: boolean;
