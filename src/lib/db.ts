@@ -79,4 +79,93 @@ export async function initSchema() {
   await query`
     ALTER TABLE matching_rules DROP COLUMN IF EXISTS product_name_contains
   `;
+
+  // Track every image we upload so we can look up its integer imageId at delete time.
+  // Dutchie's GET /products doesn't return imageIds — the integer is only handed back
+  // once, by /products/set-image.
+  await query`
+    CREATE TABLE IF NOT EXISTS uploaded_images (
+      id          SERIAL PRIMARY KEY,
+      product_id  INTEGER NOT NULL,
+      image_id    INTEGER NOT NULL,
+      image_url   TEXT NOT NULL,
+      location    TEXT NOT NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(product_id, image_id, location)
+    )
+  `;
+
+  await query`
+    CREATE INDEX IF NOT EXISTS idx_uploaded_images_product
+      ON uploaded_images(product_id, location)
+  `;
+  await query`
+    CREATE INDEX IF NOT EXISTS idx_uploaded_images_url
+      ON uploaded_images(image_url)
+  `;
+}
+
+const DEFAULT_LOCATION = "BILLINGS";
+
+export async function recordUploadedImage(params: {
+  productId: number;
+  imageId: number;
+  imageUrl: string;
+  location?: string;
+}): Promise<void> {
+  const query = sql();
+  const location = params.location ?? DEFAULT_LOCATION;
+  await query`
+    INSERT INTO uploaded_images (product_id, image_id, image_url, location)
+    VALUES (${params.productId}, ${params.imageId}, ${params.imageUrl}, ${location})
+    ON CONFLICT (product_id, image_id, location) DO UPDATE
+      SET image_url = EXCLUDED.image_url
+  `;
+}
+
+export async function findUploadedImageId(params: {
+  productId: number;
+  imageUrl: string;
+  location?: string;
+}): Promise<number | null> {
+  const query = sql();
+  const location = params.location ?? DEFAULT_LOCATION;
+  const rows = (await query`
+    SELECT image_id FROM uploaded_images
+    WHERE product_id = ${params.productId}
+      AND location = ${location}
+      AND image_url = ${params.imageUrl}
+    LIMIT 1
+  `) as { image_id: number }[];
+  if (rows.length > 0) return rows[0].image_id;
+  return null;
+}
+
+export async function findUploadedImageIdsByProduct(params: {
+  productId: number;
+  location?: string;
+}): Promise<{ imageId: number; imageUrl: string }[]> {
+  const query = sql();
+  const location = params.location ?? DEFAULT_LOCATION;
+  const rows = (await query`
+    SELECT image_id, image_url FROM uploaded_images
+    WHERE product_id = ${params.productId}
+      AND location = ${location}
+  `) as { image_id: number; image_url: string }[];
+  return rows.map((r) => ({ imageId: r.image_id, imageUrl: r.image_url }));
+}
+
+export async function deleteUploadedImageRecord(params: {
+  productId: number;
+  imageId: number;
+  location?: string;
+}): Promise<void> {
+  const query = sql();
+  const location = params.location ?? DEFAULT_LOCATION;
+  await query`
+    DELETE FROM uploaded_images
+    WHERE product_id = ${params.productId}
+      AND image_id = ${params.imageId}
+      AND location = ${location}
+  `;
 }

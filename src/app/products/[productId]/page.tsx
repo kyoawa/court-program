@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
 import { FileDropZone } from "@/components/upload/file-drop-zone";
 import { fileToBase64 } from "@/lib/image-utils";
-import { extractImageIdFromUrl } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -17,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ArrowLeft, ImageOff, Loader2, Sparkles, Copy, Check, Save, FolderOpen, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageOff, Info, Loader2, Sparkles, Copy, Check, Save, FolderOpen, Trash2 } from "lucide-react";
 import type { MatchResult } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -40,6 +39,7 @@ export default function ProductDetailPage({
   const [deletingImage, setDeletingImage] = useState(false);
   const [confirmRemoveAll, setConfirmRemoveAll] = useState(false);
   const [removingAll, setRemovingAll] = useState(false);
+  const [managedUrls, setManagedUrls] = useState<Set<string>>(new Set());
 
   const product = useMemo(
     () => products.find((p) => String(p.productId) === productId),
@@ -54,6 +54,22 @@ export default function ProductDetailPage({
     if (product.imageUrl) return [product.imageUrl];
     return [];
   }, [product]);
+
+  // Track which images we uploaded (those we can delete via the API).
+  useEffect(() => {
+    if (!product) return;
+    let cancelled = false;
+    fetch(`/api/images/managed?productId=${product.productId}`)
+      .then((res) => (res.ok ? res.json() : { managedUrls: [] }))
+      .then((data: { managedUrls?: string[] }) => {
+        if (cancelled) return;
+        setManagedUrls(new Set(data.managedUrls ?? []));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [product, imageUrls]);
 
   // Check for repository match when product has no images
   useEffect(() => {
@@ -178,19 +194,22 @@ export default function ProductDetailPage({
 
   async function handleDeleteImage() {
     if (!pendingDeleteUrl || !product) return;
-    const imageId = extractImageIdFromUrl(pendingDeleteUrl);
-    if (!imageId) {
-      toast.error("Could not identify image ID");
-      setPendingDeleteUrl(null);
-      return;
-    }
     setDeletingImage(true);
     try {
       const res = await fetch("/api/images/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId: product.productId, imageId }),
+        body: JSON.stringify({
+          productId: product.productId,
+          imageUrl: pendingDeleteUrl,
+        }),
       });
+      if (res.status === 422) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.message ?? "This image cannot be deleted via the API.");
+        setPendingDeleteUrl(null);
+        return;
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Request failed: ${res.status}`);
@@ -222,10 +241,22 @@ export default function ProductDetailPage({
         total: number;
         removed: number;
         failed: number;
+        unmanaged?: number;
       };
+      const unmanaged = data.unmanaged ?? 0;
       if (data.failed > 0) {
         toast.error(
-          `Removed ${data.removed} of ${data.total} images (${data.failed} failed)`
+          `Removed ${data.removed} of ${data.total} images (${data.failed} failed${
+            unmanaged ? `, ${unmanaged} unmanaged` : ""
+          })`
+        );
+      } else if (unmanaged > 0 && data.removed === 0) {
+        toast.error(
+          `No images removed — ${unmanaged} were uploaded outside this app and must be deleted via Dutchie Backoffice.`
+        );
+      } else if (unmanaged > 0) {
+        toast.success(
+          `Removed ${data.removed} image(s); ${unmanaged} could not be deleted (uploaded outside this app).`
         );
       } else {
         toast.success(
@@ -453,29 +484,41 @@ export default function ProductDetailPage({
 
         {imageUrls.length > 0 ? (
           <div className="grid grid-cols-4 gap-4">
-            {imageUrls.map((url, i) => (
-              <div
-                key={i}
-                className="relative group rounded-lg border overflow-hidden"
-              >
-                <img
-                  src={url}
-                  alt={`${product.productName} image ${i + 1}`}
-                  className="w-full aspect-square object-cover"
-                  loading="lazy"
-                />
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
-                  onClick={() => setPendingDeleteUrl(url)}
-                  aria-label="Remove image"
-                  title="Remove image"
+            {imageUrls.map((url, i) => {
+              const isUnmanaged = !managedUrls.has(url);
+              return (
+                <div
+                  key={i}
+                  className="relative group rounded-lg border overflow-hidden"
                 >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
+                  <img
+                    src={url}
+                    alt={`${product.productName} image ${i + 1}`}
+                    className="w-full aspect-square object-cover"
+                    loading="lazy"
+                  />
+                  {isUnmanaged && (
+                    <div
+                      className="absolute top-2 left-2 h-7 w-7 rounded-full bg-background/90 border flex items-center justify-center shadow-sm"
+                      title="Uploaded outside this app — delete via Dutchie Backoffice"
+                      aria-label="Uploaded outside this app"
+                    >
+                      <Info className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                    onClick={() => setPendingDeleteUrl(url)}
+                    aria-label="Remove image"
+                    title="Remove image"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="space-y-3">
@@ -575,9 +618,29 @@ export default function ProductDetailPage({
           <DialogHeader>
             <DialogTitle>Remove all images?</DialogTitle>
             <DialogDescription>
-              Remove all {imageUrls.length} image
-              {imageUrls.length === 1 ? "" : "s"} from this product? This will
-              delete them from Dutchie&apos;s online menu and cannot be undone.
+              {(() => {
+                const removable = imageUrls.filter((u) =>
+                  managedUrls.has(u)
+                ).length;
+                const unmanaged = imageUrls.length - removable;
+                if (unmanaged === 0) {
+                  return (
+                    <>
+                      Remove all {imageUrls.length} image
+                      {imageUrls.length === 1 ? "" : "s"} from this product?
+                      This will delete them from Dutchie&apos;s online menu and
+                      cannot be undone.
+                    </>
+                  );
+                }
+                return (
+                  <>
+                    {removable} image{removable === 1 ? "" : "s"} will be
+                    removed. {unmanaged} cannot be deleted (uploaded outside
+                    this app — delete via Dutchie Backoffice).
+                  </>
+                );
+              })()}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
