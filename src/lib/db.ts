@@ -80,6 +80,12 @@ export async function initSchema() {
     ALTER TABLE matching_rules DROP COLUMN IF EXISTS product_name_contains
   `;
 
+  // Migration: per-image product exclusions for repository apply
+  await query`
+    ALTER TABLE repository_images
+    ADD COLUMN IF NOT EXISTS excluded_product_ids INTEGER[] NOT NULL DEFAULT '{}'::INTEGER[]
+  `;
+
   // Track every image we upload so we can look up its integer imageId at delete time.
   // Dutchie's GET /products doesn't return imageIds — the integer is only handed back
   // once, by /products/set-image.

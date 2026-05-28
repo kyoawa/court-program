@@ -35,6 +35,29 @@ export async function POST(req: NextRequest) {
 
     const shouldOverwrite = overwriteExisting === true;
 
+    const filterQuery = sql();
+    const imageIds = Array.from(new Set(items.map((i) => i.imageId)));
+    const exclusionRows = (await filterQuery`
+      SELECT id, COALESCE(excluded_product_ids, '{}'::INTEGER[]) as excluded_product_ids
+      FROM repository_images
+      WHERE id = ANY(${imageIds}::INTEGER[])
+    `) as { id: number; excluded_product_ids: number[] }[];
+    const exclusionsByImage = new Map<number, Set<number>>();
+    for (const row of exclusionRows) {
+      exclusionsByImage.set(row.id, new Set(row.excluded_product_ids ?? []));
+    }
+    const filteredItems = items.filter((it) => {
+      const excl = exclusionsByImage.get(it.imageId);
+      return !excl || !excl.has(it.productId);
+    });
+
+    if (filteredItems.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "All items were excluded — nothing to apply" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const stream = new ReadableStream({
       async start(controller) {
         const enc = new TextEncoder();
@@ -63,7 +86,7 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        for (const item of items) {
+        for (const item of filteredItems) {
           controller.enqueue(
             enc.encode(
               encode({
