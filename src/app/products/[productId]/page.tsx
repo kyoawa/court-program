@@ -5,10 +5,19 @@ import { useRouter } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
 import { FileDropZone } from "@/components/upload/file-drop-zone";
 import { fileToBase64 } from "@/lib/image-utils";
+import { extractImageIdFromUrl } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, ImageOff, Loader2, Sparkles, Copy, Check, Save, FolderOpen } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ArrowLeft, ImageOff, Loader2, Sparkles, Copy, Check, Save, FolderOpen, Trash2 } from "lucide-react";
 import type { MatchResult } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -27,6 +36,10 @@ export default function ProductDetailPage({
   const [saving, setSaving] = useState(false);
   const [repoMatch, setRepoMatch] = useState<MatchResult | null>(null);
   const [applyingRepo, setApplyingRepo] = useState(false);
+  const [pendingDeleteUrl, setPendingDeleteUrl] = useState<string | null>(null);
+  const [deletingImage, setDeletingImage] = useState(false);
+  const [confirmRemoveAll, setConfirmRemoveAll] = useState(false);
+  const [removingAll, setRemovingAll] = useState(false);
 
   const product = useMemo(
     () => products.find((p) => String(p.productId) === productId),
@@ -160,6 +173,75 @@ export default function ProductDetailPage({
       toast.error("Failed to save description");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDeleteImage() {
+    if (!pendingDeleteUrl || !product) return;
+    const imageId = extractImageIdFromUrl(pendingDeleteUrl);
+    if (!imageId) {
+      toast.error("Could not identify image ID");
+      setPendingDeleteUrl(null);
+      return;
+    }
+    setDeletingImage(true);
+    try {
+      const res = await fetch("/api/images/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: product.productId, imageId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed: ${res.status}`);
+      }
+      toast.success("Image removed");
+      setPendingDeleteUrl(null);
+      mutate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove image");
+    } finally {
+      setDeletingImage(false);
+    }
+  }
+
+  async function handleRemoveAllImages() {
+    if (!product) return;
+    setRemovingAll(true);
+    try {
+      const res = await fetch("/api/images/remove-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: product.productId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Request failed: ${res.status}`);
+      }
+      const data = (await res.json()) as {
+        total: number;
+        removed: number;
+        failed: number;
+      };
+      if (data.failed > 0) {
+        toast.error(
+          `Removed ${data.removed} of ${data.total} images (${data.failed} failed)`
+        );
+      } else {
+        toast.success(
+          data.removed === 1
+            ? "All images removed"
+            : `Removed ${data.removed} images`
+        );
+      }
+      setConfirmRemoveAll(false);
+      mutate();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to remove all images"
+      );
+    } finally {
+      setRemovingAll(false);
     }
   }
 
@@ -348,20 +430,50 @@ export default function ProductDetailPage({
       <Separator />
 
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold">
-          Images ({imageUrls.length})
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">
+            Images ({imageUrls.length})
+          </h2>
+          {imageUrls.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmRemoveAll(true)}
+              disabled={removingAll}
+            >
+              {removingAll ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Remove all
+            </Button>
+          )}
+        </div>
 
         {imageUrls.length > 0 ? (
           <div className="grid grid-cols-4 gap-4">
             {imageUrls.map((url, i) => (
-              <div key={i} className="rounded-lg border overflow-hidden">
+              <div
+                key={i}
+                className="relative group rounded-lg border overflow-hidden"
+              >
                 <img
                   src={url}
                   alt={`${product.productName} image ${i + 1}`}
                   className="w-full aspect-square object-cover"
                   loading="lazy"
                 />
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                  onClick={() => setPendingDeleteUrl(url)}
+                  aria-label="Remove image"
+                  title="Remove image"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             ))}
           </div>
@@ -414,6 +526,81 @@ export default function ProductDetailPage({
           <FileDropZone onFilesSelected={handleUploadFiles} />
         </div>
       </div>
+
+      <Dialog
+        open={!!pendingDeleteUrl}
+        onOpenChange={(o) => !o && !deletingImage && setPendingDeleteUrl(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this image?</DialogTitle>
+            <DialogDescription>
+              It will be removed from Dutchie&apos;s online menu.
+            </DialogDescription>
+          </DialogHeader>
+          {pendingDeleteUrl && (
+            <img
+              src={pendingDeleteUrl}
+              alt=""
+              className="w-full max-h-48 object-contain rounded-md border"
+            />
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPendingDeleteUrl(null)}
+              disabled={deletingImage}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteImage}
+              disabled={deletingImage}
+            >
+              {deletingImage && (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              )}
+              {deletingImage ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmRemoveAll}
+        onOpenChange={(o) => !o && !removingAll && setConfirmRemoveAll(false)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove all images?</DialogTitle>
+            <DialogDescription>
+              Remove all {imageUrls.length} image
+              {imageUrls.length === 1 ? "" : "s"} from this product? This will
+              delete them from Dutchie&apos;s online menu and cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmRemoveAll(false)}
+              disabled={removingAll}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRemoveAllImages}
+              disabled={removingAll}
+            >
+              {removingAll && (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              )}
+              {removingAll ? "Removing..." : "Remove all"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
