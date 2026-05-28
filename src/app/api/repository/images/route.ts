@@ -10,6 +10,7 @@ export async function GET() {
 
     const images = await query`
       SELECT ri.id, ri.name, ri.file_name, ri.mime_type, ri.group_name, ri.created_at,
+             COALESCE(ri.excluded_product_ids, '{}'::INTEGER[]) as excluded_product_ids,
              (SELECT COUNT(*) FROM matching_rules WHERE image_id = ri.id) as rules_count
       FROM repository_images ri
       ORDER BY ri.group_name NULLS LAST, ri.created_at DESC
@@ -37,6 +38,7 @@ export async function GET() {
       mimeType: img.mime_type,
       groupName: img.group_name ?? null,
       createdAt: img.created_at,
+      excludedProductIds: (img.excluded_product_ids ?? []) as number[],
       rulesCount: Number(img.rules_count),
       rules: (rulesByImage.get(img.id as number) ?? []).map((r) => ({
         id: r.id,

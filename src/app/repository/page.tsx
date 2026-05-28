@@ -159,6 +159,7 @@ export default function RepositoryPage() {
                 <RuleEditor
                   imageId={image.id}
                   rules={image.rules}
+                  excludedProductIds={image.excludedProductIds ?? []}
                   brands={brands}
                   categories={categories}
                   onChanged={() => mutate()}

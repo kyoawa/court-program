@@ -66,9 +66,11 @@ export async function POST(req: NextRequest) {
 
     return Response.json({
       matchCount: matched.length,
-      sampleProducts: matched.slice(0, 5).map((p) => ({
+      sampleProducts: matched.map((p) => ({
         id: p.productId,
         name: p.productName ?? "Unknown",
+        brandName: p.brandName,
+        category: p.category,
       })),
     });
   } catch (error) {

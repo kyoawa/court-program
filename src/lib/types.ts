@@ -89,6 +89,7 @@ export interface RepositoryImage {
   groupName: string | null;
   thumbnailDataUrl: string | null;
   createdAt: string;
+  excludedProductIds: number[];
   rules: MatchingRule[];
 }
 
