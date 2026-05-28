@@ -45,6 +45,22 @@ export async function initSchema() {
     )
   `;
 
+  // Backfill columns on repository_images so older deployments match the
+  // current schema. CREATE TABLE IF NOT EXISTS is a no-op if the table
+  // already exists with an older shape, so every column the code touches
+  // needs a matching ADD COLUMN IF NOT EXISTS here.
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS name TEXT`;
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS file_name TEXT`;
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS mime_type TEXT`;
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS image_data BYTEA`;
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS group_name TEXT`;
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+  await query`
+    ALTER TABLE repository_images
+    ADD COLUMN IF NOT EXISTS excluded_product_ids INTEGER[] NOT NULL DEFAULT '{}'::INTEGER[]
+  `;
+
   await query`
     CREATE TABLE IF NOT EXISTS matching_rules (
       id                    SERIAL PRIMARY KEY,
@@ -59,6 +75,20 @@ export async function initSchema() {
     )
   `;
 
+  // Backfill every column on matching_rules. This MUST run before the
+  // legacy-data UPDATE below so we don't fail with "column does not exist"
+  // on tables that predate any of these columns (including the old
+  // product_name_contains scalar, which the UPDATE still references).
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS image_id INTEGER`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS brand_name TEXT`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS category TEXT`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS strain TEXT`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS strain_type TEXT`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS product_name_contains TEXT`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS product_name_keywords TEXT[]`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`;
+  await query`ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+
   await query`
     CREATE INDEX IF NOT EXISTS idx_rules_image_id ON matching_rules(image_id)
   `;
@@ -67,21 +97,6 @@ export async function initSchema() {
   `;
   await query`
     CREATE INDEX IF NOT EXISTS idx_rules_category ON matching_rules(category)
-  `;
-
-  // Migration: add group_name to repository_images
-  await query`
-    ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS group_name TEXT
-  `;
-
-  // Migration: track last update time for repository images
-  await query`
-    ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  `;
-
-  // Migration: add product_name_keywords array column
-  await query`
-    ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS product_name_keywords TEXT[]
   `;
 
   // Migration: copy old scalar values into new array column
@@ -95,12 +110,6 @@ export async function initSchema() {
   // Migration: drop old column
   await query`
     ALTER TABLE matching_rules DROP COLUMN IF EXISTS product_name_contains
-  `;
-
-  // Migration: per-image product exclusions for repository apply
-  await query`
-    ALTER TABLE repository_images
-    ADD COLUMN IF NOT EXISTS excluded_product_ids INTEGER[] NOT NULL DEFAULT '{}'::INTEGER[]
   `;
 
   // Track every image we upload so we can look up its integer imageId at delete time.
@@ -117,6 +126,13 @@ export async function initSchema() {
       UNIQUE(product_id, image_id, location)
     )
   `;
+
+  // Backfill every column on uploaded_images.
+  await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS product_id INTEGER`;
+  await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS image_id INTEGER`;
+  await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS image_url TEXT`;
+  await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS location TEXT`;
+  await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
 
   await query`
     CREATE INDEX IF NOT EXISTS idx_uploaded_images_product
