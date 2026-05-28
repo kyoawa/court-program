@@ -37,7 +37,7 @@ export default function UploadPage() {
 
 function UploadPageContent() {
   const searchParams = useSearchParams();
-  const { products, isLoading: productsLoading } = useProducts({
+  const { products, isLoading: productsLoading, mutate: mutateProducts } = useProducts({
     isActive: true,
   });
   const queue = useUploadQueue();
@@ -311,6 +311,7 @@ function UploadPageContent() {
               selectable
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
+              onProductsChanged={() => mutateProducts()}
             />
           </>
         )}

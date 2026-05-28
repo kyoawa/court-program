@@ -28,6 +28,7 @@ export function MatchPreview({ products, productsLoading }: MatchPreviewProps) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [applying, setApplying] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [overwriteExisting, setOverwriteExisting] = useState(false);
 
   async function handleFindMatches() {
     setMatching(true);
@@ -100,7 +101,7 @@ export function MatchPreview({ products, productsLoading }: MatchPreviewProps) {
       const res = await fetch("/api/repository/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, overwriteExisting }),
       });
 
       if (!res.ok || !res.body) throw new Error("Failed to apply");
@@ -234,6 +235,23 @@ export function MatchPreview({ products, productsLoading }: MatchPreviewProps) {
                 ))}
               </TableBody>
             </Table>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={overwriteExisting}
+                onCheckedChange={(v) => setOverwriteExisting(v === true)}
+                disabled={applying}
+              />
+              <span>Overwrite existing images</span>
+            </label>
+            {overwriteExisting && (
+              <p className="text-xs text-muted-foreground pl-6">
+                This will delete all existing images on these products and
+                replace them with the matched image.
+              </p>
+            )}
           </div>
 
           <Button

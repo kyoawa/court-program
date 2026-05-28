@@ -17,6 +17,7 @@ import { ImageOff, ArrowUpDown, ChevronLeft, ChevronRight, FileText } from "luci
 import { Button } from "@/components/ui/button";
 import { PRODUCTS_PER_PAGE } from "@/lib/constants";
 import type { ProductDetail } from "@/lib/types";
+import { ProductImagesDialog } from "@/components/products/product-images-dialog";
 
 interface ProductTableProps {
   products: ProductDetail[];
@@ -28,6 +29,7 @@ interface ProductTableProps {
   newSinceDays?: number;
   inventory?: Record<number, string[]>;
   showInventory?: boolean;
+  onProductsChanged?: () => void;
 }
 
 type SortField = "productName" | "category" | "lastModifiedDateUTC" | "brandName";
@@ -47,10 +49,13 @@ export function ProductTable({
   newSinceDays,
   inventory,
   showInventory,
+  onProductsChanged,
 }: ProductTableProps) {
   const [sortField, setSortField] = useState<SortField>("lastModifiedDateUTC");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
+  const [imagesDialogProduct, setImagesDialogProduct] =
+    useState<ProductDetail | null>(null);
 
   // Reset page when products change
   const productKey = products.length;
@@ -213,18 +218,40 @@ export function ProductTable({
                     </TableCell>
                   )}
                   <TableCell>
-                    {product.imageUrl ? (
-                      <img
-                        src={product.imageUrl}
-                        alt={product.productName ?? ""}
-                        className="w-10 h-10 rounded object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                        <ImageOff className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    )}
+                    {(() => {
+                      const primary =
+                        product.imageUrl ??
+                        (product.imageUrls && product.imageUrls[0]) ??
+                        null;
+                      const extraCount = imgCount > 1 ? imgCount - 1 : 0;
+                      if (!primary) {
+                        return (
+                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                            <ImageOff className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          type="button"
+                          className="relative block w-10 h-10 rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-ring"
+                          onClick={() => setImagesDialogProduct(product)}
+                          aria-label={`View all images for ${product.productName ?? "product"}`}
+                        >
+                          <img
+                            src={primary}
+                            alt={product.productName ?? ""}
+                            className="w-10 h-10 rounded object-cover"
+                            loading="lazy"
+                          />
+                          {extraCount > 0 && (
+                            <span className="absolute top-0 right-0 bg-primary text-primary-foreground text-[10px] leading-none px-1 py-[2px] rounded-bl rounded-tr font-medium">
+                              +{extraCount}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Link
@@ -316,6 +343,17 @@ export function ProductTable({
           </TableBody>
         </Table>
       </div>
+
+      {imagesDialogProduct && (
+        <ProductImagesDialog
+          product={imagesDialogProduct}
+          open={!!imagesDialogProduct}
+          onOpenChange={(open) => {
+            if (!open) setImagesDialogProduct(null);
+          }}
+          onImagesChanged={onProductsChanged}
+        />
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (

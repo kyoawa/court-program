@@ -57,6 +57,11 @@ export async function initSchema() {
     ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS group_name TEXT
   `;
 
+  // Migration: track last update time for repository images
+  await query`
+    ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  `;
+
   // Migration: add product_name_keywords array column
   await query`
     ALTER TABLE matching_rules ADD COLUMN IF NOT EXISTS product_name_keywords TEXT[]

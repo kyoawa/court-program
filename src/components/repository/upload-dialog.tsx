@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,15 +18,42 @@ import { toast } from "sonner";
 
 interface UploadDialogProps {
   onUploaded: () => void;
+  replaceImageId?: number;
+  initialName?: string;
+  initialGroupName?: string | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }
 
-export function UploadDialog({ onUploaded }: UploadDialogProps) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [groupName, setGroupName] = useState("");
+export function UploadDialog({
+  onUploaded,
+  replaceImageId,
+  initialName,
+  initialGroupName,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+  hideTrigger,
+}: UploadDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (v: boolean) => {
+    if (onOpenChangeProp) onOpenChangeProp(v);
+    else setInternalOpen(v);
+  };
+  const isReplace = replaceImageId !== undefined;
+  const [name, setName] = useState(initialName ?? "");
+  const [groupName, setGroupName] = useState(initialGroupName ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(initialName ?? "");
+      setGroupName(initialGroupName ?? "");
+    }
+  }, [open, initialName, initialGroupName]);
 
   // Clean up Object URL when preview changes or component unmounts
   useEffect(() => {
@@ -60,8 +87,11 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
     setUploading(true);
     try {
       const base64 = await fileToBase64(file);
-      const res = await fetch("/api/repository/images", {
-        method: "POST",
+      const url = isReplace
+        ? `/api/repository/images/${replaceImageId}`
+        : "/api/repository/images";
+      const res = await fetch(url, {
+        method: isReplace ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
@@ -71,8 +101,8 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
           groupName: groupName.trim() || null,
         }),
       });
-      if (!res.ok) throw new Error("Failed to upload");
-      toast.success("Image added to repository");
+      if (!res.ok) throw new Error(isReplace ? "Failed to replace" : "Failed to upload");
+      toast.success(isReplace ? "Image replaced" : "Image added to repository");
       if (preview) URL.revokeObjectURL(preview);
       setOpen(false);
       setName("");
@@ -81,7 +111,7 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
       setPreview(null);
       onUploaded();
     } catch {
-      toast.error("Failed to add image");
+      toast.error(isReplace ? "Failed to replace image" : "Failed to add image");
     } finally {
       setUploading(false);
     }
@@ -89,20 +119,31 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="h-4 w-4 mr-1" />
-          Add Image
-        </Button>
-      </DialogTrigger>
+      {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Button>
+            <Plus className="h-4 w-4 mr-1" />
+            Add Image
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Image to Repository</DialogTitle>
+          <DialogTitle>
+            {isReplace ? "Replace Image" : "Add Image to Repository"}
+          </DialogTitle>
           <DialogDescription>
-            Upload an image and give it a name to use with matching rules.
+            {isReplace
+              ? "Upload a new image to replace this one. The image ID stays the same so all matching rules remain intact."
+              : "Upload an image and give it a name to use with matching rules."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {isReplace && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-900 dark:text-amber-200">
+              This will update the image but keep all matching rules intact.
+            </div>
+          )}
           <div>
             <label className="text-sm font-medium">Name</label>
             <Input
@@ -147,7 +188,13 @@ export function UploadDialog({ onUploaded }: UploadDialogProps) {
             disabled={!file || !name.trim() || uploading}
           >
             {uploading && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-            {uploading ? "Uploading..." : "Add to Repository"}
+            {uploading
+              ? isReplace
+                ? "Replacing..."
+                : "Uploading..."
+              : isReplace
+                ? "Replace"
+                : "Add to Repository"}
           </Button>
         </div>
       </DialogContent>
