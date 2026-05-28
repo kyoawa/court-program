@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server";
-import { sql } from "@/lib/db";
+import {
+  sql,
+  recordUploadedImage,
+  findUploadedImageIdsByProduct,
+  deleteUploadedImageRecord,
+} from "@/lib/db";
 import { getProducts, removeImage, setImage } from "@/lib/dutchie-client";
 import { cacheDelete } from "@/lib/cache";
-import { extractImageIdFromUrl } from "@/lib/utils";
 
 interface ApplyItem {
   productId: number;
@@ -16,9 +20,10 @@ function encode(data: Record<string, unknown>): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { items, overwriteExisting } = (await req.json()) as {
+    const { items, overwriteExisting, location } = (await req.json()) as {
       items: ApplyItem[];
       overwriteExisting?: boolean;
+      location?: string;
     };
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -35,8 +40,11 @@ export async function POST(req: NextRequest) {
         const enc = new TextEncoder();
         const query = sql();
 
-        // Snapshot of existing products is only needed for overwrite mode.
-        let productById: Map<number, { imageUrls: string[] | null; imageUrl: string | null }> | null = null;
+        // For overwrite mode we need the live image URLs to know what counts as "unmanaged".
+        let productById: Map<
+          number,
+          { imageUrls: string[] | null; imageUrl: string | null }
+        > | null = null;
         if (shouldOverwrite) {
           try {
             const all = await getProducts({ isActive: true });
@@ -47,7 +55,10 @@ export async function POST(req: NextRequest) {
               ])
             );
           } catch (err) {
-            console.error("[apply] Failed to fetch products for overwrite mode:", err);
+            console.error(
+              "[apply] Failed to fetch products for overwrite mode:",
+              err
+            );
             productById = new Map();
           }
         }
@@ -64,27 +75,40 @@ export async function POST(req: NextRequest) {
           );
 
           let removedCount = 0;
+          let unmanagedCount = 0;
 
           if (shouldOverwrite && productById) {
             const existing = productById.get(item.productId);
-            const urls = existing?.imageUrls ?? (existing?.imageUrl ? [existing.imageUrl] : []);
-            for (const url of urls) {
-              const extractedId = extractImageIdFromUrl(url);
-              if (!extractedId) {
-                console.warn(`[apply] Could not extract imageId from URL: ${url}`);
+            const liveUrls =
+              existing?.imageUrls ??
+              (existing?.imageUrl ? [existing.imageUrl] : []);
+
+            const tracked = await findUploadedImageIdsByProduct({
+              productId: item.productId,
+              location,
+            });
+            const byUrl = new Map(tracked.map((t) => [t.imageUrl, t.imageId]));
+
+            for (const url of liveUrls) {
+              const trackedId = byUrl.get(url);
+              if (!trackedId) {
+                unmanagedCount++;
                 continue;
               }
               try {
                 await removeImage({
                   productId: item.productId,
-                  // Dutchie's removeImage typing is number, but URL-extracted IDs are
-                  // commonly UUIDs/hashes. Pass through what we parsed.
-                  imageId: extractedId as unknown as number,
+                  imageId: trackedId,
+                });
+                await deleteUploadedImageRecord({
+                  productId: item.productId,
+                  imageId: trackedId,
+                  location,
                 });
                 removedCount++;
               } catch (err) {
                 console.error(
-                  `[apply] removeImage failed for product ${item.productId}, image ${extractedId}:`,
+                  `[apply] removeImage failed for product ${item.productId}, image ${trackedId}:`,
                   err
                 );
               }
@@ -122,6 +146,22 @@ export async function POST(req: NextRequest) {
               fileName: row.file_name as string,
             });
 
+            if (result.imageId && result.imageUrl) {
+              try {
+                await recordUploadedImage({
+                  productId: item.productId,
+                  imageId: result.imageId,
+                  imageUrl: result.imageUrl,
+                  location,
+                });
+              } catch (err) {
+                console.error(
+                  "[apply] Failed to record uploaded image:",
+                  err
+                );
+              }
+            }
+
             controller.enqueue(
               enc.encode(
                 encode({
@@ -129,6 +169,7 @@ export async function POST(req: NextRequest) {
                   productId: item.productId,
                   productName: item.productName,
                   removedCount,
+                  unmanagedCount,
                   addedCount: 1,
                   result,
                 })
@@ -142,6 +183,7 @@ export async function POST(req: NextRequest) {
                   productId: item.productId,
                   productName: item.productName,
                   removedCount,
+                  unmanagedCount,
                   addedCount: 0,
                   error:
                     error instanceof Error ? error.message : "Unknown error",

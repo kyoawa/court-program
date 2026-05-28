@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { setImage } from "@/lib/dutchie-client";
 import { cacheDelete } from "@/lib/cache";
+import { recordUploadedImage } from "@/lib/db";
 
 interface BatchItem {
   productId: number;
@@ -14,7 +15,10 @@ function encode(data: Record<string, unknown>): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { items } = (await req.json()) as { items: BatchItem[] };
+    const { items, location } = (await req.json()) as {
+      items: BatchItem[];
+      location?: string;
+    };
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return new Response(
@@ -62,6 +66,22 @@ export async function POST(req: NextRequest) {
               base64Image: base64,
               fileName,
             });
+
+            if (result.imageId && result.imageUrl) {
+              try {
+                await recordUploadedImage({
+                  productId: item.productId,
+                  imageId: result.imageId,
+                  imageUrl: result.imageUrl,
+                  location,
+                });
+              } catch (err) {
+                console.error(
+                  "[upload-batch] Failed to record uploaded image:",
+                  err
+                );
+              }
+            }
 
             controller.enqueue(
               encoder.encode(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,9 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ImageOff, Loader2, Trash2 } from "lucide-react";
+import { ImageOff, Info, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { extractImageIdFromUrl } from "@/lib/utils";
 import type { ProductDetail } from "@/lib/types";
 
 interface ProductImagesDialogProps {
@@ -36,23 +35,42 @@ export function ProductImagesDialog({
 
   const [pendingDeleteUrl, setPendingDeleteUrl] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [managedUrls, setManagedUrls] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch(`/api/images/managed?productId=${product.productId}`)
+      .then((res) => (res.ok ? res.json() : { managedUrls: [] }))
+      .then((data: { managedUrls?: string[] }) => {
+        if (cancelled) return;
+        setManagedUrls(new Set(data.managedUrls ?? []));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, product.productId, urls]);
 
   async function handleDelete() {
     if (!pendingDeleteUrl) return;
-    const imageId = extractImageIdFromUrl(pendingDeleteUrl);
-    if (!imageId) {
-      toast.error("Could not identify image ID — please contact support");
-      setPendingDeleteUrl(null);
-      return;
-    }
 
     setDeleting(true);
     try {
       const res = await fetch("/api/images/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId: product.productId, imageId }),
+        body: JSON.stringify({
+          productId: product.productId,
+          imageUrl: pendingDeleteUrl,
+        }),
       });
+      if (res.status === 422) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.message ?? "This image cannot be deleted via the API.");
+        setPendingDeleteUrl(null);
+        return;
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Request failed: ${res.status}`);
@@ -89,28 +107,40 @@ export function ProductImagesDialog({
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto">
-              {urls.map((url) => (
-                <div
-                  key={url}
-                  className="relative rounded-md border overflow-hidden bg-muted/30"
-                >
-                  <img
-                    src={url}
-                    alt={product.productName ?? ""}
-                    className="w-full h-[200px] max-h-[200px] object-contain"
-                    loading="lazy"
-                  />
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="absolute top-1 right-1 h-7 w-7 p-0"
-                    onClick={() => setPendingDeleteUrl(url)}
-                    aria-label="Delete image"
+              {urls.map((url) => {
+                const isUnmanaged = !managedUrls.has(url);
+                return (
+                  <div
+                    key={url}
+                    className="relative rounded-md border overflow-hidden bg-muted/30"
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                    <img
+                      src={url}
+                      alt={product.productName ?? ""}
+                      className="w-full h-[200px] max-h-[200px] object-contain"
+                      loading="lazy"
+                    />
+                    {isUnmanaged && (
+                      <div
+                        className="absolute top-1 left-1 h-6 w-6 rounded-full bg-background/90 border flex items-center justify-center shadow-sm"
+                        title="Uploaded outside this app — delete via Dutchie Backoffice"
+                        aria-label="Uploaded outside this app"
+                      >
+                        <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="absolute top-1 right-1 h-7 w-7 p-0"
+                      onClick={() => setPendingDeleteUrl(url)}
+                      aria-label="Delete image"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </DialogContent>

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProducts, removeImage } from "@/lib/dutchie-client";
-import { extractImageIdFromUrl } from "@/lib/utils";
 import { cacheDelete } from "@/lib/cache";
+import {
+  deleteUploadedImageRecord,
+  findUploadedImageIdsByProduct,
+} from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { productId } = body;
+    const { productId, location } = body;
 
     if (!productId) {
       return NextResponse.json(
@@ -33,31 +36,47 @@ export async function POST(req: NextRequest) {
         ? [product.imageUrl]
         : [];
 
+    const tracked = await findUploadedImageIdsByProduct({
+      productId: Number(productId),
+      location,
+    });
+    const trackedByUrl = new Map(tracked.map((t) => [t.imageUrl, t.imageId]));
+
     const results = {
       total: urls.length,
       removed: 0,
       failed: 0,
+      unmanaged: 0,
       errors: [] as string[],
     };
 
     for (const url of urls) {
-      const imageId = extractImageIdFromUrl(url);
-      if (!imageId) {
-        results.failed++;
-        results.errors.push(`Could not extract imageId from URL: ${url}`);
+      const trackedId = trackedByUrl.get(url);
+      if (!trackedId) {
+        results.unmanaged++;
         continue;
       }
       try {
         await removeImage({
-          productId,
-          imageId: imageId as unknown as number,
+          productId: Number(productId),
+          imageId: trackedId,
         });
+        try {
+          await deleteUploadedImageRecord({
+            productId: Number(productId),
+            imageId: trackedId,
+            location,
+          });
+        } catch (err) {
+          console.error(
+            "[images/remove-all] Failed to delete tracking record:",
+            err
+          );
+        }
         results.removed++;
       } catch (err) {
         results.failed++;
-        results.errors.push(
-          err instanceof Error ? err.message : String(err)
-        );
+        results.errors.push(err instanceof Error ? err.message : String(err));
       }
     }
 
