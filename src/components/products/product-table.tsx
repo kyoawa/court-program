@@ -17,6 +17,7 @@ import { ImageOff, ArrowUpDown, ChevronLeft, ChevronRight, FileText } from "luci
 import { Button } from "@/components/ui/button";
 import { PRODUCTS_PER_PAGE } from "@/lib/constants";
 import type { ProductDetail } from "@/lib/types";
+import { getImageCount } from "@/lib/image-utils";
 import { ProductImagesDialog } from "@/components/products/product-images-dialog";
 
 interface ProductTableProps {
@@ -30,6 +31,13 @@ interface ProductTableProps {
   inventory?: Record<number, string[]>;
   showInventory?: boolean;
   onProductsChanged?: () => void;
+  /**
+   * When true, render every row passed in and hide the built-in pager. Used by
+   * pages that own their own pagination/virtualization (e.g. All Products).
+   * Defaults to false, preserving the existing client-side pagination for all
+   * current callers.
+   */
+  disablePagination?: boolean;
 }
 
 type SortField = "productName" | "category" | "lastModifiedDateUTC" | "brandName";
@@ -50,6 +58,7 @@ export function ProductTable({
   inventory,
   showInventory,
   onProductsChanged,
+  disablePagination,
 }: ProductTableProps) {
   const [sortField, setSortField] = useState<SortField>("lastModifiedDateUTC");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -75,10 +84,9 @@ export function ProductTable({
   }, [products, sortField, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PRODUCTS_PER_PAGE));
-  const paged = sorted.slice(
-    page * PRODUCTS_PER_PAGE,
-    (page + 1) * PRODUCTS_PER_PAGE
-  );
+  const paged = disablePagination
+    ? sorted
+    : sorted.slice(page * PRODUCTS_PER_PAGE, (page + 1) * PRODUCTS_PER_PAGE);
 
   const cutoffDate = useMemo(() => {
     if (!newSinceDays) return null;
@@ -112,12 +120,6 @@ export function ProductTable({
     if (next.has(id)) next.delete(id);
     else next.add(id);
     onSelectionChange(next);
-  }
-
-  function getImageCount(p: ProductDetail): number {
-    if (p.imageUrls && p.imageUrls.length > 0) return p.imageUrls.length;
-    if (p.imageUrl) return 1;
-    return 0;
   }
 
   function isNew(p: ProductDetail): boolean {
@@ -356,7 +358,7 @@ export function ProductTable({
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {!disablePagination && totalPages > 1 && (
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
             Showing {page * PRODUCTS_PER_PAGE + 1}-

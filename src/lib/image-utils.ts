@@ -1,5 +1,20 @@
 import { MAX_IMAGE_SIZE_MB, SUPPORTED_IMAGE_TYPES } from "./constants";
 
+/**
+ * Canonical image count for a product. Mirrors how the rest of the app counts
+ * images (the "+N" thumbnail badge and the Images column): prefer the
+ * `imageUrls` array length, fall back to a single `imageUrl`, else 0.
+ * A product is "multi-image" when this is >= 2.
+ */
+export function getImageCount(p: {
+  imageUrl: string | null;
+  imageUrls: string[] | null;
+}): number {
+  if (p.imageUrls && p.imageUrls.length > 0) return p.imageUrls.length;
+  if (p.imageUrl) return 1;
+  return 0;
+}
+
 export function validateImageFile(file: File): string | null {
   if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
     return `Unsupported file type: ${file.type}. Use JPG, PNG, or WebP.`;
