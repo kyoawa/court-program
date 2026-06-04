@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clock, ImageOff, Upload, Package, FolderOpen } from "lucide-react";
+import { Clock, ImageOff, Upload, Package, FolderOpen, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
+  {
+    href: "/products/all",
+    label: "All Products",
+    icon: LayoutGrid,
+  },
   {
     href: "/products/recent",
     label: "Recent Products",
