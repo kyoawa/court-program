@@ -500,8 +500,8 @@ export default function ProductDetailPage({
                   {isUnmanaged && (
                     <div
                       className="absolute top-2 left-2 h-7 w-7 rounded-full bg-background/90 border flex items-center justify-center shadow-sm"
-                      title="Uploaded outside this app — delete via Dutchie Backoffice"
-                      aria-label="Uploaded outside this app"
+                      title="Image ID not synced — use Image Sync, then refresh"
+                      aria-label="Image ID not synced"
                     >
                       <Info className="h-4 w-4 text-muted-foreground" />
                     </div>
@@ -636,8 +636,7 @@ export default function ProductDetailPage({
                 return (
                   <>
                     {removable} image{removable === 1 ? "" : "s"} will be
-                    removed. {unmanaged} cannot be deleted (uploaded outside
-                    this app — delete via Dutchie Backoffice).
+                    removed. {unmanaged} need Image Sync before they can be deleted.
                   </>
                 );
               })()}

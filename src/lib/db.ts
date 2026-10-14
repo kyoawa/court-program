@@ -135,6 +135,14 @@ export async function initSchema() {
     ALTER TABLE matching_rules DROP COLUMN IF EXISTS product_name_contains
   `;
 
+  await query`
+    CREATE TABLE IF NOT EXISTS catalog_image_snapshots (
+      product_id INTEGER PRIMARY KEY,
+      captured_at TIMESTAMPTZ NOT NULL,
+      images JSONB NOT NULL
+    )
+  `;
+
   // Track every image we upload so we can look up its integer imageId at delete time.
   // Dutchie's GET /products doesn't return imageIds — the integer is only handed back
   // once, by /products/set-image.
@@ -175,13 +183,14 @@ export async function recordUploadedImage(params: {
   imageUrl: string;
   location?: string;
 }): Promise<void> {
+  await ensureSchema();
   const query = sql();
   const location = params.location ?? DEFAULT_LOCATION;
   await query`
     INSERT INTO uploaded_images (product_id, image_id, image_url, location)
     VALUES (${params.productId}, ${params.imageId}, ${params.imageUrl}, ${location})
     ON CONFLICT (product_id, image_id, location) DO UPDATE
-      SET image_url = EXCLUDED.image_url
+      SET image_url = EXCLUDED.image_url, uploaded_at = NOW()
   `;
 }
 
@@ -190,31 +199,33 @@ export async function findUploadedImageId(params: {
   imageUrl: string;
   location?: string;
 }): Promise<number | null> {
-  const query = sql();
-  const location = params.location ?? DEFAULT_LOCATION;
-  const rows = (await query`
-    SELECT image_id FROM uploaded_images
-    WHERE product_id = ${params.productId}
-      AND location = ${location}
-      AND image_url = ${params.imageUrl}
-    LIMIT 1
-  `) as { image_id: number }[];
-  if (rows.length > 0) return rows[0].image_id;
-  return null;
+  const images = await findUploadedImageIdsByProduct(params);
+  return images.find(image => image.imageUrl === params.imageUrl)?.imageId ?? null;
 }
 
 export async function findUploadedImageIdsByProduct(params: {
   productId: number;
   location?: string;
 }): Promise<{ imageId: number; imageUrl: string }[]> {
+  await ensureSchema();
   const query = sql();
   const location = params.location ?? DEFAULT_LOCATION;
-  const rows = (await query`
-    SELECT image_id, image_url FROM uploaded_images
-    WHERE product_id = ${params.productId}
-      AND location = ${location}
-  `) as { image_id: number; image_url: string }[];
-  return rows.map((r) => ({ imageId: r.image_id, imageUrl: r.image_url }));
+  const rows = await query`
+    SELECT DISTINCT ON (image_id) image_id, image_url FROM (
+      SELECT (image->>'imageId')::integer AS image_id,
+             image->>'imageUrl' AS image_url, 0 AS priority
+      FROM catalog_image_snapshots, jsonb_array_elements(images) AS image
+      WHERE product_id = ${params.productId}
+      UNION ALL
+      SELECT image_id, image_url, 1 AS priority FROM uploaded_images
+      WHERE product_id = ${params.productId} AND location = ${location}
+        AND NOT EXISTS (
+          SELECT 1 FROM catalog_image_snapshots s
+          WHERE s.product_id = ${params.productId} AND s.captured_at >= uploaded_images.uploaded_at
+        )
+    ) mappings ORDER BY image_id, priority
+  `;
+  return rows.map(r => ({ imageId: r.image_id as number, imageUrl: r.image_url as string }));
 }
 
 export async function deleteUploadedImageRecord(params: {
@@ -222,8 +233,15 @@ export async function deleteUploadedImageRecord(params: {
   imageId: number;
   location?: string;
 }): Promise<void> {
+  await ensureSchema();
   const query = sql();
   const location = params.location ?? DEFAULT_LOCATION;
+  await query`
+    UPDATE catalog_image_snapshots
+    SET images = COALESCE((SELECT jsonb_agg(image) FROM jsonb_array_elements(images) AS image
+      WHERE (image->>'imageId')::integer <> ${params.imageId}), '[]'::jsonb)
+    WHERE product_id = ${params.productId}
+  `;
   await query`
     DELETE FROM uploaded_images
     WHERE product_id = ${params.productId}

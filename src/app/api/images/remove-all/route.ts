@@ -57,10 +57,11 @@ export async function POST(req: NextRequest) {
         continue;
       }
       try {
-        await removeImage({
+        const result = await removeImage({
           productId: Number(productId),
           imageId: trackedId,
         });
+        if (!result.result) throw new Error(result.message || "Dutchie did not delete the image.");
         try {
           await deleteUploadedImageRecord({
             productId: Number(productId),

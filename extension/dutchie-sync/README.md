@@ -1,0 +1,17 @@
+# Dutchie Catalog Image Sync
+
+Install the unpacked extension in Chrome (chrome://extensions → Developer mode → Load unpacked). Choose this folder. Sign in to Canyon Backoffice normally. Configure the private SYNC_IMPORT_TOKEN from the Railway app, then test product 1577752 before running the catalog.
+
+The worker fetches product IDs from the authenticated /api/images/sync endpoint and visits each catalog page in a dedicated tab. Document-start scripts observe only successful get-product-extra-info responses. They forward only product/image IDs, image URLs and capture time. Cookies, request headers, descriptions, inventory, prices and compliance fields are neither copied nor submitted. No script clicks Save or calls a Dutchie mutation API.
+
+The sync is catalog-wide and does not need twelve store runs. Coverage is limited to products visible to the app's API account. The current app uses its default BILLINGS API credential for the product list. The user can also enter a specific product ID.
+
+Each import atomically replaces one catalog snapshot; snapshots older than the stored capture are ignored. Empty successful responses clear mappings, not Dutchie images. API uploads made after the snapshot remain discoverable. The existing deletion routes read both sources. Deletion is a separate explicit UI operation.
+
+The key permits reading the product ID list and writing image mappings. It does not authorize extension calls to deletion routes. The application has existing unauthenticated mutation routes; this feature does not retrofit app-wide authentication. Do not distribute the key or add it to source control. Rotate the Railway variable to revoke it.
+
+One tab is visited at a time, with a delay between pages. The queue and progress persist in extension storage. A timeout, login expiry, import failure or unexpected response pauses instead of skipping a product. Resume reloads the unfinished product. Browser restart pauses the job. Do not navigate the dedicated tab while syncing. Keep Chrome running; alarms may be delayed by Chrome scheduling. New runs can reuse the extension's previous dedicated tab.
+
+Internal Dutchie responses are not a supported public API contract and may change. This extension is intentionally restricted to Canyon Backoffice and the current Railway app domain. Change the manifest and worker together if moving domains.
+
+Run tests from the repository root: `node --test tests/image-sync.cjs`. Chrome content script reference: https://developer.chrome.com/docs/extensions/reference/manifest/content-scripts

@@ -1,0 +1,5 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Dutchie Image Sync</title><style>
+body{font:14px system-ui;width:340px;padding:16px;color:#172033}h1{font-size:20px}input,button{box-sizing:border-box;width:100%;padding:10px;margin:5px 0}button{cursor:pointer}p{line-height:1.5}#status{white-space:pre-wrap;background:#eef3f7;padding:12px}label{display:block;margin-top:12px}
+</style></head><body><h1>Dutchie Image Sync</h1><p>Reads catalog image IDs. Does not add, remove, or edit anything in Dutchie. Stay signed in and leave the sync tab open.</p>
+<label>Sync key <input id="key" type="password" autocomplete="off" placeholder="Paste your private sync key"></label><button id="save">Save key</button>
+<label>Product ID <input id="product" inputmode="numeric" value="1577752"></label><button id="one">Sync this product</button><button id="all">Sync entire catalog</button><button id="pause">Pause</button><button id="resume">Resume</button><p id="status" role="status">Ready</p><a href="https://court-program-production.up.railway.app/sync" target="_blank">Setup instructions</a><script src="popup.js"></script></body></html>

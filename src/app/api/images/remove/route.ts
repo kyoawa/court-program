@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
         {
           error: "unmanaged_image",
           message:
-            "This image was not uploaded through this app and cannot be deleted via the API. Please delete it directly in Dutchie Backoffice.",
+            "This image needs to be synced from Dutchie first. Open Image Sync in the sidebar, sync this product, then refresh this page.",
         },
         { status: 422 }
       );
@@ -40,6 +40,10 @@ export async function POST(req: NextRequest) {
       productId: Number(productId),
       imageId: Number(imageId),
     });
+
+    if (!result.result) {
+      return NextResponse.json({ error: result.message || "Dutchie did not delete the image." }, { status: 502 });
+    }
 
     try {
       await deleteUploadedImageRecord({

@@ -123,8 +123,8 @@ export function ProductImagesDialog({
                     {isUnmanaged && (
                       <div
                         className="absolute top-1 left-1 h-6 w-6 rounded-full bg-background/90 border flex items-center justify-center shadow-sm"
-                        title="Uploaded outside this app — delete via Dutchie Backoffice"
-                        aria-label="Uploaded outside this app"
+                        title="Image ID not synced — use Image Sync, then refresh"
+                        aria-label="Image ID not synced"
                       >
                         <Info className="h-3.5 w-3.5 text-muted-foreground" />
                       </div>
