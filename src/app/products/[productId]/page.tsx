@@ -252,11 +252,11 @@ export default function ProductDetailPage({
         );
       } else if (unmanaged > 0 && data.removed === 0) {
         toast.error(
-          `No images removed — ${unmanaged} were uploaded outside this app and must be deleted via Dutchie Backoffice.`
+          `No images removed — ${unmanaged} need Image Sync before they can be deleted.`
         );
       } else if (unmanaged > 0) {
         toast.success(
-          `Removed ${data.removed} image(s); ${unmanaged} could not be deleted (uploaded outside this app).`
+          `Removed ${data.removed} image(s); ${unmanaged} need Image Sync before they can be deleted.`
         );
       } else {
         toast.success(
