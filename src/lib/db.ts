@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import { Pool } from "pg";
 
 function getConnectionString(): string {
   const url = process.env.DATABASE_URL;
@@ -6,8 +6,31 @@ function getConnectionString(): string {
   return url;
 }
 
+let pool: Pool | undefined;
+
 export function sql() {
-  return neon(getConnectionString());
+  // Create the pool lazily: builds do not need a database connection.
+  if (!pool) {
+    pool = new Pool({
+      connectionString: getConnectionString(),
+      max: 10,
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
+    });
+    pool.on("error", (error) => {
+      console.error("Idle database connection failed:", error.message);
+    });
+  }
+  const connectionPool = pool;
+  return async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    // Keep values separate from SQL, including arrays and binary images.
+    const text = strings.reduce(
+      (query, part, index) => query + (index ? `$${index}` : "") + part,
+      "",
+    );
+    const result = await connectionPool.query(text, values);
+    return result.rows;
+  };
 }
 
 /**

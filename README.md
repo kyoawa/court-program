@@ -5,7 +5,7 @@ Internal tool for managing product images and descriptions across dispensary onl
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router, React 19)
-- **Database:** PostgreSQL via Neon serverless driver
+- **Database:** PostgreSQL via node-postgres. On Railway, set the app's `DATABASE_URL` to `${{Postgres.DATABASE_URL}}` to use the database's private connection. The image repository initializes its tables on first access.
 - **UI:** Tailwind CSS 4, shadcn/ui, Radix UI
 - **AI:** OpenAI (product description generation)
 - **Data Fetching:** SWR
