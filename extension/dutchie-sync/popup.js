@@ -14,7 +14,8 @@ async function send(message) {
 }
 document.querySelector("#save").onclick = () => send({ type: "save", key: document.querySelector("#key").value });
 document.querySelector("#one").onclick = () => send({ type: "start", productId: document.querySelector("#product").value });
-document.querySelector("#all").onclick = () => { if (confirm("Read the entire catalog in a dedicated tab? This can take hours. You can pause and resume.")) send({ type: "start" }); };
+document.querySelector("#pilot").onclick = () => send({ type: "start", pilot: true });
+document.querySelector("#all").onclick = () => { if (confirm("Read the entire catalog in a dedicated tab? Uses five concurrent metadata requests. You can pause and resume.")) send({ type: "start" }); };
 document.querySelector("#pause").onclick = () => send({ type: "pause" });
 document.querySelector("#resume").onclick = () => send({ type: "resume" });
 chrome.storage.onChanged.addListener(render);

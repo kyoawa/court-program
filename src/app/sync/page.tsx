@@ -10,7 +10,7 @@ export default function SyncPage() {
       <li>After success, refresh that product in Catalog Manager. Its images should no longer show the missing image ID message.</li>
       <li>Choose <strong>Sync entire catalog</strong> when ready. Keep Chrome and the dedicated sync tab open. Pause and Resume preserve progress. An expired login or unexpected response pauses the run.</li>
     </ol>
-    <p>The extension sends only product IDs, image IDs, image URLs, and capture times to this app. Dutchie login cookies stay in Chrome. It visits one product at a time; a large catalog can take hours.</p>
+    <p>The extension sends only product IDs, image IDs, image URLs, and capture times to this app. Dutchie login cookies stay in Chrome. It reads five products’ image metadata concurrently. Use the 25-product test before a full crawl; completion time depends on Dutchie response times and throttling.</p>
     <p>Run sync again after images are changed directly in Backoffice. If Dutchie changes its internal page responses, the extension may need an update. Catalog coverage follows the products visible to the app’s configured API account.</p>
   </div>;
 }

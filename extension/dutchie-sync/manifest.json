@@ -1,15 +1,42 @@
 {
   "manifest_version": 3,
   "name": "Dutchie Catalog Image Sync",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minimum_chrome_version": "111",
   "description": "Read catalog image IDs from your Dutchie session. Never edits Dutchie products.",
-  "permissions": ["storage", "alarms"],
-  "host_permissions": ["https://canyon.backoffice.dutchie.com/*", "https://court-program-production.up.railway.app/*"],
-  "background": {"service_worker": "background.js"},
-  "action": {"default_popup": "popup.html"},
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://canyon.backoffice.dutchie.com/*",
+    "https://court-program-production.up.railway.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
   "content_scripts": [
-    {"matches": ["https://canyon.backoffice.dutchie.com/products/catalog/*"], "js": ["bridge.js"], "run_at": "document_start"},
-    {"matches": ["https://canyon.backoffice.dutchie.com/products/catalog/*"], "js": ["capture.js"], "run_at": "document_start", "world": "MAIN"}
+    {
+      "matches": [
+        "https://canyon.backoffice.dutchie.com/products/catalog/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://canyon.backoffice.dutchie.com/products/catalog/*"
+      ],
+      "js": [
+        "capture.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
   ]
 }
