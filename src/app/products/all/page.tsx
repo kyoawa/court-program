@@ -3,14 +3,13 @@
 import { useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useProductsPaged } from "@/hooks/use-products";
+import { useProductFacets, useProductsPaged } from "@/hooks/use-products";
+import { useInventory } from "@/hooks/use-inventory";
 import { ProductTable } from "@/components/products/product-table";
-import { CategoryFilter } from "@/components/products/category-filter";
-import { BrandFilter } from "@/components/products/brand-filter";
+import { ProductFilterBar } from "@/components/products/product-filter-bar";
+import { EMPTY_FILTERS, hasActiveFilters, type ProductFilters } from "@/lib/product-filters";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getImageCount } from "@/lib/image-utils";
 import type { ProductDetail } from "@/lib/types";
@@ -22,39 +21,19 @@ const ROW_HEIGHT = 56;
 export default function AllProductsPage() {
   const [page, setPage] = useState(1);
   const [showAll, setShowAll] = useState(false);
-  const [multiImageOnly, setMultiImageOnly] = useState(false);
-  const [category, setCategory] = useState("all");
-  const [brand, setBrand] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<ProductFilters>(EMPTY_FILTERS);
 
+  // Filters run server-side before pagination, so page counts and totals
+  // reflect the filtered catalog rather than one page of it.
   const { products, total, hasMore, isLoading, mutate } = useProductsPaged({
     page,
     pageSize: PAGE_SIZE,
     all: showAll,
-    multiImageOnly,
+    filters,
     isActive: true,
   });
-
-  // Client-side narrowing (category / brand / search) on top of the
-  // server-filtered set — mirrors the Recent / Missing Images pages. These are
-  // display-only refinements; the multi-image filter & pagination run server-side.
-  const filtered = useMemo(() => {
-    let result = products;
-    if (category !== "all") {
-      result = result.filter((p) => p.category === category);
-    }
-    if (brand !== "all") {
-      result = result.filter((p) => p.brandName === brand);
-    }
-    if (searchQuery.trim()) {
-      const keywords = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
-      result = result.filter((p) => {
-        const name = (p.productName ?? "").toLowerCase();
-        return keywords.every((kw) => name.includes(kw));
-      });
-    }
-    return result;
-  }, [products, category, brand, searchQuery]);
+  const { facets } = useProductFacets({ isActive: true });
+  const { inventory } = useInventory();
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -62,43 +41,33 @@ export default function AllProductsPage() {
     setPage(1);
   }
 
+  function applyFilters(next: ProductFilters) {
+    setFilters(next);
+    resetPaging();
+  }
+
   const countSummary = isLoading
     ? "Loading..."
-    : multiImageOnly
-      ? `Showing ${filtered.length} of ${total} (multi-image only)`
-      : `Showing ${filtered.length} of ${total} products`;
+    : showAll
+      ? `${total} products${hasActiveFilters(filters) ? " match" : ""}`
+      : `Showing ${products.length} of ${total} products${hasActiveFilters(filters) ? " matching" : ""}`;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">All Products</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Browse the full product catalog. Toggle pagination or filter to
-          products that already have multiple images.
+          Browse and filter the full product catalog by keyword, brand,
+          vendor, category, stock location, images and descriptions.
         </p>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap">
-        <Input
-          placeholder="Search by name..."
-          className="w-48 h-9"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <CategoryFilter value={category} onChange={setCategory} />
-        <BrandFilter value={brand} onChange={setBrand} products={products} />
-
-        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-          <Checkbox
-            checked={multiImageOnly}
-            onCheckedChange={(c) => {
-              setMultiImageOnly(c === true);
-              resetPaging();
-            }}
-          />
-          Only multi-image products
-        </label>
-
+      <ProductFilterBar
+        filters={filters}
+        onChange={applyFilters}
+        facets={facets}
+        summary={countSummary}
+      >
         <div className="flex items-center gap-1">
           <Button
             variant={!showAll ? "default" : "outline"}
@@ -123,20 +92,18 @@ export default function AllProductsPage() {
             Show all
           </Button>
         </div>
-
-        <span className="text-sm text-muted-foreground ml-auto">
-          {countSummary}
-        </span>
-      </div>
+      </ProductFilterBar>
 
       {showAll ? (
-        <VirtualProductList products={filtered} isLoading={isLoading} />
+        <VirtualProductList products={products} isLoading={isLoading} />
       ) : (
         <>
           <ProductTable
-            products={filtered}
+            products={products}
             isLoading={isLoading}
             disablePagination
+            inventory={inventory}
+            showInventory
             onProductsChanged={() => mutate()}
           />
           {totalPages > 1 && (

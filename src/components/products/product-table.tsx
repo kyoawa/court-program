@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { PRODUCTS_PER_PAGE } from "@/lib/constants";
 import type { ProductDetail } from "@/lib/types";
 import { getImageCount } from "@/lib/image-utils";
+import { formatStoreName } from "@/lib/product-filters";
 import { ProductImagesDialog } from "@/components/products/product-images-dialog";
 
 interface ProductTableProps {
@@ -42,10 +43,6 @@ interface ProductTableProps {
 
 type SortField = "productName" | "category" | "lastModifiedDateUTC" | "brandName";
 type SortDir = "asc" | "desc";
-
-function formatStoreName(name: string): string {
-  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export function ProductTable({
   products,
@@ -277,7 +274,14 @@ export function ProductTable({
                     {product.sku ?? "-"}
                   </TableCell>
                   <TableCell>{product.category ?? "-"}</TableCell>
-                  <TableCell>{product.brandName ?? "-"}</TableCell>
+                  <TableCell>
+                    {product.brandName ?? "-"}
+                    {product.vendorName && product.vendorName !== product.brandName && (
+                      <div className="text-xs text-muted-foreground" title="Vendor">
+                        {product.vendorName}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {product.strain ?? "-"}
                     {product.strainType && (

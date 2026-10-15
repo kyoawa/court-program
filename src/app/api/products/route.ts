@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProducts } from "@/lib/dutchie-client";
-import { cacheGet, cacheSet } from "@/lib/cache";
-import { CACHE_TTL } from "@/lib/constants";
-import { getImageCount } from "@/lib/image-utils";
+import { getCatalogProducts } from "@/lib/catalog";
+import { getInventoryMap } from "@/lib/inventory";
+import {
+  FILTER_PARAM_KEYS,
+  filterProducts,
+  filtersFromParams,
+  hasActiveFilters,
+} from "@/lib/product-filters";
 import type { ProductDetail } from "@/lib/types";
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 500;
 
-// New, OPTIONAL params for internal pagination/filtering. None of these touch
-// the Dutchie call — they post-process the (cached) response only.
-const PAGINATION_PARAMS = ["page", "pageSize", "all", "multiImageOnly"] as const;
+// OPTIONAL params for internal pagination/filtering. None of these touch the
+// Dutchie call — they post-process the (cached) response only. The filter
+// params are the same ones the browser-side filter bar uses (see
+// lib/product-filters.ts), so filters apply before pagination.
+const PAGINATION_PARAMS = ["page", "pageSize", "all", "multiImageOnly", ...FILTER_PARAM_KEYS];
 
 export async function GET(req: NextRequest) {
   try {
@@ -23,15 +29,10 @@ export async function GET(req: NextRequest) {
     // Fetch (or read from cache) the full Dutchie response. The cache key is
     // keyed ONLY on the Dutchie inputs so the payload is shared across every
     // pagination/filter combination.
-    const cacheKey = fromDate ? `products:from:${fromDate}` : "products:all";
-    let products = cacheGet<ProductDetail[]>(cacheKey);
-    if (!products) {
-      products = await getProducts({
-        fromLastModifiedDateUTC: fromDate,
-        isActive,
-      });
-      cacheSet(cacheKey, products, CACHE_TTL.products);
-    }
+    const products = await getCatalogProducts({
+      fromLastModifiedDateUTC: fromDate,
+      isActive,
+    });
 
     // Backward compatibility: if no pagination/filter param is present, return
     // the raw array exactly as before (existing pages depend on this shape).
@@ -56,9 +57,13 @@ export async function GET(req: NextRequest) {
       )
     );
 
+    const filters = filtersFromParams(searchParams);
+    // Legacy alias kept for older links.
+    if (multiImageOnly && filters.images === "all") filters.images = "multi";
     let filtered = products;
-    if (multiImageOnly) {
-      filtered = filtered.filter((p) => getImageCount(p) >= 2);
+    if (hasActiveFilters(filters)) {
+      const inventory = filters.stock !== "all" ? await getInventoryMap() : undefined;
+      filtered = filterProducts(products, filters, inventory);
     }
 
     const total = filtered.length;

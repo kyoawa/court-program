@@ -3,15 +3,16 @@
 import { Suspense, useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
+import { useInventory } from "@/hooks/use-inventory";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
 import { ProductTable } from "@/components/products/product-table";
-import { CategoryFilter } from "@/components/products/category-filter";
+import { ProductFilterBar } from "@/components/products/product-filter-bar";
+import { EMPTY_FILTERS, filterProducts } from "@/lib/product-filters";
 import { FileDropZone } from "@/components/upload/file-drop-zone";
 import { UrlInputList } from "@/components/upload/url-input-list";
 import { UploadQueueTable } from "@/components/upload/upload-queue-table";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
@@ -41,11 +42,11 @@ function UploadPageContent() {
   const { products, isLoading: productsLoading, mutate: mutateProducts } = useProducts({
     isActive: true,
   });
+  const { inventory } = useInventory();
   const queue = useUploadQueue();
 
   const [replaceExisting, setReplaceExisting] = useState(false);
-  const [category, setCategory] = useState("all");
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [tableCollapsed, setTableCollapsed] = useState(false);
   const [generatingDescs, setGeneratingDescs] = useState(false);
@@ -62,21 +63,10 @@ function UploadPageContent() {
 
   const [urls, setUrls] = useState<string[]>([""]);
 
-  const filteredProducts = useMemo(() => {
-    let list = products;
-    if (category !== "all") {
-      list = list.filter((p) => p.category === category);
-    }
-    if (search) {
-      const s = search.toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.productName?.toLowerCase().includes(s) ||
-          p.sku?.toLowerCase().includes(s)
-      );
-    }
-    return list;
-  }, [products, category, search]);
+  const filteredProducts = useMemo(
+    () => filterProducts(products, filters, inventory),
+    [products, filters, inventory]
+  );
 
   const selectedProducts = useMemo(
     () => products.filter((p) => selectedIds.has(p.productId)),
@@ -284,7 +274,12 @@ function UploadPageContent() {
           <h2 className="font-semibold">1. Select Target Products</h2>
           <div className="flex items-center gap-2">
             {selectedIds.size > 0 && (
-              <Badge variant="default">{selectedIds.size} selected</Badge>
+              <>
+                <Badge variant="default">{selectedIds.size} selected</Badge>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Clear selection
+                </Button>
+              </>
             )}
             <Button
               variant="ghost"
@@ -302,18 +297,12 @@ function UploadPageContent() {
 
         {!tableCollapsed && (
           <>
-            <div className="flex items-center gap-3 flex-wrap">
-              <CategoryFilter value={category} onChange={setCategory} />
-              <Input
-                placeholder="Search by name or SKU..."
-                className="w-64"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <span className="text-sm text-muted-foreground ml-auto">
-                {filteredProducts.length} products
-              </span>
-            </div>
+            <ProductFilterBar
+              filters={filters}
+              onChange={setFilters}
+              products={products}
+              summary={productsLoading ? "Loading..." : `${filteredProducts.length} of ${products.length} products`}
+            />
 
             <ProductTable
               products={filteredProducts}
@@ -321,6 +310,8 @@ function UploadPageContent() {
               selectable
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
+              inventory={inventory}
+              showInventory
               onProductsChanged={() => mutateProducts()}
             />
           </>

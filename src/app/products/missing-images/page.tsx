@@ -6,8 +6,8 @@ import { useProducts } from "@/hooks/use-products";
 import { useInventory } from "@/hooks/use-inventory";
 import { useImageSearch } from "@/hooks/use-image-search";
 import { ProductTable } from "@/components/products/product-table";
-import { CategoryFilter } from "@/components/products/category-filter";
-import { BrandFilter } from "@/components/products/brand-filter";
+import { ProductFilterBar } from "@/components/products/product-filter-bar";
+import { EMPTY_FILTERS, filterProducts } from "@/lib/product-filters";
 import { StatusFilter, type ProductStatus } from "@/components/products/status-filter";
 import {
   DateRangePicker,
@@ -15,7 +15,6 @@ import {
 } from "@/components/products/date-range-picker";
 import { ImageSearchDialog } from "@/components/products/image-search-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Upload, ImageOff, Package, Search, FolderOpen, Loader2, Store } from "lucide-react";
 import { toast } from "sonner";
 import type { MatchResult } from "@/lib/types";
@@ -27,14 +26,11 @@ function hasNoImage(p: { imageUrl: string | null; imageUrls: string[] | null }) 
 
 export default function MissingImagesPage() {
   const router = useRouter();
-  const [category, setCategory] = useState("all");
-  const [brand, setBrand] = useState("all");
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [status, setStatus] = useState<ProductStatus>("all");
   const [days, setDays] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [inventoryFilter, setInventoryFilter] = useState<"all" | "in-stock" | "no-stock">("all");
   const [applyingRepo, setApplyingRepo] = useState(false);
   const [repoProgress, setRepoProgress] = useState({ done: 0, total: 0 });
 
@@ -60,36 +56,14 @@ export default function MissingImagesPage() {
 
   const filtered = useMemo(() => {
     let result = allMissing;
-    if (category !== "all") {
-      result = result.filter((p) => p.category === category);
-    }
-    if (brand !== "all") {
-      result = result.filter((p) => p.brandName === brand);
-    }
     if (status !== "all" && cutoffDate) {
       result = result.filter((p) => {
         const isNew = p.createdDate && new Date(p.createdDate) >= cutoffDate;
         return status === "new" ? isNew : !isNew;
       });
     }
-    if (searchQuery.trim()) {
-      const keywords = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
-      result = result.filter((p) => {
-        const name = (p.productName ?? "").toLowerCase();
-        return keywords.every((kw) => name.includes(kw));
-      });
-    }
-    if (inventoryFilter === "in-stock") {
-      result = result.filter(
-        (p) => inventory[p.productId] && inventory[p.productId].length > 0
-      );
-    } else if (inventoryFilter === "no-stock") {
-      result = result.filter(
-        (p) => !inventory[p.productId] || inventory[p.productId].length === 0
-      );
-    }
-    return result;
-  }, [allMissing, category, brand, status, cutoffDate, searchQuery, inventoryFilter, inventory]);
+    return filterProducts(result, filters, inventory);
+  }, [allMissing, status, cutoffDate, filters, inventory]);
 
   const totalProducts = products.length;
   const missingCount = allMissing.length;
@@ -251,30 +225,21 @@ export default function MissingImagesPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap">
-        <Input
-          placeholder="Search by name..."
-          className="w-48 h-9"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
+      <ProductFilterBar
+        filters={filters}
+        onChange={setFilters}
+        products={allMissing}
+        hide={{ images: true }}
+        summary={isLoading ? "Loading..." : `${filtered.length} products missing images`}
+      >
         <DateRangePicker selectedDays={days} onChange={setDays} />
-        <CategoryFilter value={category} onChange={setCategory} />
-        <BrandFilter value={brand} onChange={setBrand} products={allMissing} />
         <StatusFilter value={status} onChange={setStatus} />
-        <div className="flex items-center gap-1">
-          {(["all", "in-stock", "no-stock"] as const).map((opt) => (
-            <Button
-              key={opt}
-              variant={inventoryFilter === opt ? "default" : "outline"}
-              size="sm"
-              className="text-xs h-9"
-              onClick={() => setInventoryFilter(opt)}
-            >
-              {opt === "all" ? "All Stores" : opt === "in-stock" ? "In Stock" : "No Stock"}
-            </Button>
-          ))}
-        </div>
+      </ProductFilterBar>
+
+      <div className="flex items-center gap-4 flex-wrap">
+        {selectedIds.size > 0 && (
+          <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
+        )}
         {selectedIds.size > 0 && (
           <>
             <Button onClick={handleUploadSelected}>
@@ -297,9 +262,6 @@ export default function MissingImagesPage() {
             </Button>
           </>
         )}
-        <span className="text-sm text-muted-foreground ml-auto">
-          {isLoading ? "Loading..." : `${filtered.length} products missing images`}
-        </span>
       </div>
 
       <ProductTable

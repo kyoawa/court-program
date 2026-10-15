@@ -3,10 +3,11 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
+import { useInventory } from "@/hooks/use-inventory";
 import { useImageSearch } from "@/hooks/use-image-search";
 import { ProductTable } from "@/components/products/product-table";
-import { CategoryFilter } from "@/components/products/category-filter";
-import { BrandFilter } from "@/components/products/brand-filter";
+import { ProductFilterBar } from "@/components/products/product-filter-bar";
+import { EMPTY_FILTERS, filterProducts } from "@/lib/product-filters";
 import { StatusFilter, type ProductStatus } from "@/components/products/status-filter";
 import {
   DateRangePicker,
@@ -19,8 +20,7 @@ import { Upload, Search } from "lucide-react";
 export default function RecentProductsPage() {
   const router = useRouter();
   const [days, setDays] = useState(7);
-  const [category, setCategory] = useState("all");
-  const [brand, setBrand] = useState("all");
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [status, setStatus] = useState<ProductStatus>("all");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
@@ -31,6 +31,7 @@ export default function RecentProductsPage() {
     isActive: true,
   });
 
+  const { inventory } = useInventory();
   const imageSearch = useImageSearch();
 
   const cutoffDate = useMemo(() => {
@@ -42,20 +43,14 @@ export default function RecentProductsPage() {
 
   const filtered = useMemo(() => {
     let result = products;
-    if (category !== "all") {
-      result = result.filter((p) => p.category === category);
-    }
-    if (brand !== "all") {
-      result = result.filter((p) => p.brandName === brand);
-    }
     if (status !== "all" && cutoffDate) {
       result = result.filter((p) => {
         const isNew = p.createdDate && new Date(p.createdDate) >= cutoffDate;
         return status === "new" ? isNew : !isNew;
       });
     }
-    return result;
-  }, [products, category, brand, status, cutoffDate]);
+    return filterProducts(result, filters, inventory);
+  }, [products, status, cutoffDate, filters, inventory]);
 
   function handleUploadSelected() {
     const ids = Array.from(selectedIds).join(",");
@@ -85,11 +80,20 @@ export default function RecentProductsPage() {
         </p>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap">
+      <ProductFilterBar
+        filters={filters}
+        onChange={setFilters}
+        products={products}
+        summary={isLoading ? "Loading..." : `${filtered.length} of ${products.length} products`}
+      >
         <DateRangePicker selectedDays={days} onChange={setDays} />
-        <CategoryFilter value={category} onChange={setCategory} />
-        <BrandFilter value={brand} onChange={setBrand} products={products} />
         <StatusFilter value={status} onChange={setStatus} />
+      </ProductFilterBar>
+
+      <div className="flex items-center gap-4 flex-wrap">
+        {selectedIds.size > 0 && (
+          <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
+        )}
         {selectedIds.size > 0 && (
           <>
             <Button onClick={handleUploadSelected}>
@@ -102,9 +106,6 @@ export default function RecentProductsPage() {
             </Button>
           </>
         )}
-        <span className="text-sm text-muted-foreground ml-auto">
-          {isLoading ? "Loading..." : `${filtered.length} products`}
-        </span>
       </div>
 
       <ProductTable
@@ -115,6 +116,8 @@ export default function RecentProductsPage() {
         onSelectionChange={setSelectedIds}
         showNewBadge
         newSinceDays={days}
+        inventory={inventory}
+        showInventory
         onProductsChanged={() => mutate()}
       />
 

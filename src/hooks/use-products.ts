@@ -3,6 +3,11 @@
 import useSWR from "swr";
 import { useMemo } from "react";
 import type { ProductDetail } from "@/lib/types";
+import {
+  filtersToParams,
+  type ProductFacets,
+  type ProductFilters,
+} from "@/lib/product-filters";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -67,9 +72,12 @@ export function useProductsPaged(params: {
   all?: boolean;
   multiImageOnly?: boolean;
   isActive?: boolean;
+  /** Applied server-side before pagination, so counts and pages reflect it. */
+  filters?: ProductFilters;
 }) {
+  const filterQuery = params.filters ? filtersToParams(params.filters).toString() : "";
   const url = useMemo(() => {
-    const sp = new URLSearchParams();
+    const sp = new URLSearchParams(filterQuery);
     if (params.all) {
       sp.set("all", "true");
     } else {
@@ -85,6 +93,7 @@ export function useProductsPaged(params: {
     params.all,
     params.multiImageOnly,
     params.isActive,
+    filterQuery,
   ]);
 
   const { data, error, isLoading, mutate } = useSWR<PagedProductsResponse>(
@@ -109,4 +118,19 @@ export function useProductsPaged(params: {
     isLoading,
     mutate,
   };
+}
+
+/**
+ * Distinct categories, brands, vendors and strain types across the whole
+ * catalog, for filter dropdowns on pages that only hold one page of products.
+ */
+export function useProductFacets(params?: { isActive?: boolean }) {
+  const url = params?.isActive === undefined
+    ? "/api/products/facets"
+    : `/api/products/facets?isActive=${params.isActive}`;
+  const { data, error, isLoading } = useSWR<ProductFacets>(url, fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 300000,
+  });
+  return { facets: data, error, isLoading };
 }
