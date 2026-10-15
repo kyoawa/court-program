@@ -6,7 +6,6 @@ import { Clock, ImageOff, Upload, Package, FolderOpen, LayoutGrid } from "lucide
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { href: "/sync", label: "Image Sync", icon: FolderOpen },
   {
     href: "/products/all",
     label: "All Products",

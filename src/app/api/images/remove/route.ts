@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
         {
           error: "unmanaged_image",
           message:
-            "This image needs to be synced from Dutchie first. Open Image Sync in the sidebar, sync this product, then refresh this page.",
+            "The image ID is unavailable, so this image cannot be deleted through the app. It can still be removed in Dutchie Backoffice.",
         },
         { status: 422 }
       );

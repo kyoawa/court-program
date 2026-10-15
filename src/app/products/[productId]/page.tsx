@@ -247,16 +247,16 @@ export default function ProductDetailPage({
       if (data.failed > 0) {
         toast.error(
           `Removed ${data.removed} of ${data.total} images (${data.failed} failed${
-            unmanaged ? `, ${unmanaged} unmanaged` : ""
+            unmanaged ? `, ${unmanaged} missing image IDs` : ""
           })`
         );
       } else if (unmanaged > 0 && data.removed === 0) {
         toast.error(
-          `No images removed — ${unmanaged} need Image Sync before they can be deleted.`
+          `No images removed — ${unmanaged} could not be removed because their image IDs are unavailable.`
         );
       } else if (unmanaged > 0) {
         toast.success(
-          `Removed ${data.removed} image(s); ${unmanaged} need Image Sync before they can be deleted.`
+          `Removed ${data.removed} image(s); ${unmanaged} could not be removed because their image IDs are unavailable.`
         );
       } else {
         toast.success(
@@ -500,8 +500,8 @@ export default function ProductDetailPage({
                   {isUnmanaged && (
                     <div
                       className="absolute top-2 left-2 h-7 w-7 rounded-full bg-background/90 border flex items-center justify-center shadow-sm"
-                      title="Image ID not synced — use Image Sync, then refresh"
-                      aria-label="Image ID not synced"
+                      title="Image ID unavailable — this image cannot be deleted through the app"
+                      aria-label="Image ID unavailable"
                     >
                       <Info className="h-4 w-4 text-muted-foreground" />
                     </div>
@@ -636,7 +636,7 @@ export default function ProductDetailPage({
                 return (
                   <>
                     {removable} image{removable === 1 ? "" : "s"} will be
-                    removed. {unmanaged} need Image Sync before they can be deleted.
+                    removed. {unmanaged} will be skipped because their image IDs are unavailable.
                   </>
                 );
               })()}
