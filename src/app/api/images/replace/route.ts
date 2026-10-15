@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Replacement failed" }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Replacement failed" }, { status: (error as { status?: number })?.status === 429 ? 429 : 500 });
   } finally {
     cacheDelete("products:all");
   }

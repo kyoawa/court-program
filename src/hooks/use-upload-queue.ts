@@ -122,8 +122,9 @@ export function useUploadQueue() {
                 });
 
                 if (!res.ok) {
+                  if (res.status === 429) abortRef.current = true;
                   const data = await res.json().catch(() => ({}));
-                  throw new Error(data.error || `Upload failed: ${res.status}`);
+                  throw new Error(res.status === 429 ? "Dutchie rate limit reached. Batch paused; wait before retrying." : data.error || `Upload failed: ${res.status}`);
                 }
                 const reader = res.body?.getReader();
                 const decoder = new TextDecoder();
@@ -179,8 +180,9 @@ export function useUploadQueue() {
               });
 
               if (!res.ok) {
+                if (res.status === 429) abortRef.current = true;
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || `Upload failed: ${res.status}`);
+                throw new Error(res.status === 429 ? "Dutchie rate limit reached. Batch paused; wait before retrying." : data.error || `Upload failed: ${res.status}`);
               }
 
               const result = await res.json();

@@ -53,7 +53,7 @@ async function apiRequest<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Dutchie API ${res.status}: ${text || res.statusText}`);
+    throw Object.assign(new Error(`Dutchie API ${res.status}: ${text || res.statusText}`), { status: res.status });
   }
 
   return res.json() as Promise<T>;

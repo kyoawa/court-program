@@ -75,3 +75,14 @@ test('empty stream and HTTP errors are failures, never false success', async () 
     assert.equal(render().stats.failed, 1); assert.equal(render().stats.success, 0);
   }
 });
+test('rate limit pauses the queue before scheduling more products', async () => {
+  let attempts = 0;
+  const render = harness(async url => {
+    if (url.endsWith('/plan')) return ok({ planned: 10 });
+    attempts++;
+    return { ok: false, status: 429, json: async () => ({ error: 'limit' }) };
+  });
+  render().addItems(Array.from({ length: 10 }, (_, i) => item(i + 1)));
+  const result = await render().startUpload(true);
+  assert.equal(result.paused, true); assert.equal(attempts, 3); assert.equal(render().stats.queued, 7);
+});

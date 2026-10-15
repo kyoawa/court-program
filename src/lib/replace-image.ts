@@ -39,7 +39,17 @@ export async function replaceImage(
     state.fingerprint = fingerprint;
     state.phase = "uploading";
     await deps.save(state);
-    const image = await deps.upload();
+    let image: Awaited<ReturnType<ReplacementDependencies["upload"]>>;
+    try {
+      image = await deps.upload();
+    } catch (error) {
+      if ((error as { status?: number })?.status === 429) {
+        // A confirmed rate-limit rejection did not accept the upload.
+        state.phase = "planned";
+        await deps.save(state);
+      }
+      throw error;
+    }
     if (!Number.isSafeInteger(image.imageId) || image.imageId <= 0 || !image.imageUrl) {
       throw new Error("Dutchie did not confirm the new image. Check the product before retrying; no old images were deleted.");
     }
@@ -62,7 +72,16 @@ export async function replaceImage(
     }
     state.deletingId = old.imageId;
     await deps.save(state);
-    const result = await deps.remove(old.imageId);
+    let result: Awaited<ReturnType<ReplacementDependencies["remove"]>>;
+    try {
+      result = await deps.remove(old.imageId);
+    } catch (error) {
+      if ((error as { status?: number })?.status === 429) {
+        delete state.deletingId;
+        await deps.save(state);
+      }
+      throw error;
+    }
     if (!result.result) {
       delete state.deletingId;
       await deps.save(state);

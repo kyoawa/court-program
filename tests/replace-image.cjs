@@ -99,3 +99,15 @@ test('a batch of 5000 products needs one catalog read and one bulk insert', asyn
   const invalid = await POST({ json: async () => ({ items: [items[0], items[0]] }) });
   assert.equal(invalid.status, 400); assert.equal(writes, 1);
 });
+test('confirmed upload rate limits remain safe to retry', async () => {
+  let limited = true, uploads = 0;
+  const f = fixture({ upload: async () => { uploads++; if (limited) throw Object.assign(new Error('limit'), { status: 429 }); return { imageId: 3, imageUrl: 'new' }; } });
+  await assert.rejects(f.run(), /limit/); assert.equal(f.saved.phase, 'planned');
+  limited = false; await f.run(); assert.equal(uploads, 2); assert.equal(f.saved.phase, 'done');
+});
+test('confirmed delete rate limits preserve the uploaded image and allow retry', async () => {
+  let limited = true;
+  const f = fixture({ remove: async () => { if (limited) throw Object.assign(new Error('limit'), { status: 429 }); return { result: true }; } });
+  await assert.rejects(f.run(), /limit/); assert.equal(f.saved.deletingId, undefined);
+  limited = false; await f.run(); assert.equal(f.events.filter(e => e === 'upload').length, 1);
+});
