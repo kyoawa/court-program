@@ -10,6 +10,7 @@ import { FileDropZone } from "@/components/upload/file-drop-zone";
 import { UrlInputList } from "@/components/upload/url-input-list";
 import { UploadQueueTable } from "@/components/upload/upload-queue-table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -42,6 +43,7 @@ function UploadPageContent() {
   });
   const queue = useUploadQueue();
 
+  const [replaceExisting, setReplaceExisting] = useState(false);
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -82,6 +84,7 @@ function UploadPageContent() {
   );
 
   function handleFilesSelected(files: File[]) {
+    if (queue.isRunning) { toast.error("Pause the batch before adding images."); return; }
     if (selectedIds.size === 0) {
       toast.error("Select at least one product first");
       return;
@@ -102,6 +105,7 @@ function UploadPageContent() {
   }
 
   function handleAddUrls() {
+    if (queue.isRunning) { toast.error("Pause the batch before adding images."); return; }
     const validUrls = urls.filter((u) => u.trim());
     if (validUrls.length === 0) {
       toast.error("Enter at least one URL");
@@ -130,10 +134,11 @@ function UploadPageContent() {
   const queuedMissingDescs = useMemo(() => {
     const seen = new Set<number>();
     const missing: ProductDetail[] = [];
+    const byId = new Map(products.map(product => [product.productId, product]));
     for (const item of queue.items) {
       if (seen.has(item.productId)) continue;
       seen.add(item.productId);
-      const p = products.find((pr) => pr.productId === item.productId);
+      const p = byId.get(item.productId);
       if (p && !p.onlineDescription) missing.push(p);
     }
     return missing;
@@ -208,11 +213,16 @@ function UploadPageContent() {
       toast.error("No images queued for upload");
       return;
     }
-    toast.info("Starting upload...");
-    await queue.startUpload();
-    toast.success(
-      `Upload complete: ${queue.stats.success} succeeded, ${queue.stats.failed} failed`
-    );
+    try {
+      const result = await queue.startUpload(replaceExisting);
+      if (result) {
+        const message = `${result.paused ? "Paused" : "Finished"}: ${result.succeeded} succeeded, ${result.failed} failed`;
+        if (result.failed) toast.error(message); else toast.success(message);
+        await mutateProducts();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to start upload");
+    }
   }
 
   // Initialize selection from URL params
@@ -375,7 +385,20 @@ function UploadPageContent() {
           <Progress value={progressPct} className="h-2" />
         )}
 
-        <UploadQueueTable items={queue.items} onRemove={queue.removeItem} />
+        <div className="space-y-2 rounded-md border p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <Checkbox checked={replaceExisting} disabled={queue.isRunning || queue.items.some(item => item.replaceExisting !== undefined)}
+              onCheckedChange={checked => setReplaceExisting(checked === true)} />
+            Replace all existing images
+          </label>
+          <p className="text-sm text-muted-foreground">
+            {replaceExisting
+              ? "Queue one new image per product. Once it is saved, all existing images for that product will be deleted. Missing image IDs or failed deletions are reported per product."
+              : "Keep existing images and add the queued images."}
+          </p>
+          <p className="text-sm text-muted-foreground">Keep this tab open while the batch runs; reloading clears the queue. Pause stops new uploads after the current products finish. Retries keep the original upload mode. Clear the queue to change modes.</p>
+        </div>
+        <UploadQueueTable items={queue.items} onRemove={queue.removeItem} disabled={queue.isRunning} />
 
         {queuedMissingDescs.length > 0 && (
           <div className="flex items-center gap-3 rounded-md bg-muted p-3">
@@ -438,19 +461,20 @@ function UploadPageContent() {
         <div className="flex items-center gap-2">
           <Button
             onClick={handleStartUpload}
-            disabled={queue.stats.queued === 0}
+            disabled={queue.isRunning || queue.stats.queued === 0}
           >
             <Play className="h-4 w-4 mr-1" />
-            Start Upload ({queue.stats.queued})
+            {queue.isRunning ? "Uploading…" : replaceExisting ? "Start Replacement" : "Start Upload"} ({queue.stats.queued})
           </Button>
+          {queue.isRunning && <Button variant="outline" onClick={queue.stopUpload}>Pause after current uploads</Button>}
           {queue.stats.failed > 0 && (
-            <Button variant="outline" onClick={queue.retryFailed}>
+            <Button variant="outline" disabled={queue.isRunning} onClick={queue.retryFailed}>
               <RotateCcw className="h-4 w-4 mr-1" />
               Retry Failed ({queue.stats.failed})
             </Button>
           )}
           {queue.stats.success > 0 && (
-            <Button variant="ghost" onClick={queue.clearCompleted}>
+            <Button variant="ghost" disabled={queue.isRunning} onClick={queue.clearCompleted}>
               <Trash2 className="h-4 w-4 mr-1" />
               Clear Completed
             </Button>

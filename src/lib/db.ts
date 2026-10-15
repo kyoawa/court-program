@@ -8,7 +8,7 @@ function getConnectionString(): string {
 
 let pool: Pool | undefined;
 
-export function sql() {
+function getPool() {
   // Create the pool lazily: builds do not need a database connection.
   if (!pool) {
     pool = new Pool({
@@ -21,7 +21,30 @@ export function sql() {
       console.error("Idle database connection failed:", error.message);
     });
   }
-  const connectionPool = pool;
+  return pool;
+}
+
+export async function withProductImageLock<T>(productId: number, action: () => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  let locked = false;
+  try {
+    const result = await client.query("SELECT pg_try_advisory_lock(172901, $1) AS locked", [productId]);
+    locked = result.rows[0].locked;
+    if (!locked) throw new Error("Another image replacement is running for this product. Retry after it finishes.");
+    return await action();
+  } finally {
+    try {
+      if (locked) await client.query("SELECT pg_advisory_unlock(172901, $1)", [productId]);
+    } catch (error) {
+      client.release(error instanceof Error ? error : new Error("Unable to release image lock"));
+      throw error;
+    }
+    client.release();
+  }
+}
+
+export function sql() {
+  const connectionPool = getPool();
   return async (strings: TemplateStringsArray, ...values: unknown[]) => {
     // Keep values separate from SQL, including arrays and binary images.
     const text = strings.reduce(
@@ -56,6 +79,17 @@ export function ensureSchema(): Promise<void> {
  */
 export async function initSchema() {
   const query = sql();
+
+  await query`
+    CREATE TABLE IF NOT EXISTS image_replacements (
+      operation_id UUID PRIMARY KEY,
+      product_id INTEGER NOT NULL,
+      old_urls JSONB NOT NULL,
+      state JSONB NOT NULL DEFAULT '{"phase":"planned"}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
 
   await query`
     CREATE TABLE IF NOT EXISTS repository_images (

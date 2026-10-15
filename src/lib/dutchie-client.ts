@@ -29,6 +29,7 @@ async function apiRequest<T>(
     body?: unknown;
     params?: Record<string, string>;
     store?: StoreName;
+    timeoutMs?: number;
   } = {}
 ): Promise<T> {
   const baseUrl = getBaseUrl();
@@ -42,6 +43,7 @@ async function apiRequest<T>(
 
   const res = await fetch(url.toString(), {
     method: options.method ?? "GET",
+    signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     headers: {
       Authorization: getAuthHeader(options.store),
       "Content-Type": "application/json",
@@ -87,6 +89,7 @@ export async function setImage(req: SetImageRequest): Promise<SetImageResponse> 
   return apiRequest<SetImageResponse>("/products/set-image", {
     method: "POST",
     body: req,
+    timeoutMs: 90000,
   });
 }
 
@@ -94,6 +97,7 @@ export async function removeImage(req: DeleteImageRequest): Promise<SuccessResul
   return apiRequest<SuccessResult>("/products/remove-image", {
     method: "POST",
     body: req,
+    timeoutMs: 90000,
   });
 }
 

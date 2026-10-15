@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import {
   Table,
   TableBody,
@@ -16,6 +18,7 @@ import type { UploadItem } from "@/hooks/use-upload-queue";
 interface UploadQueueTableProps {
   items: UploadItem[];
   onRemove: (id: string) => void;
+  disabled?: boolean;
 }
 
 const statusConfig = {
@@ -25,7 +28,10 @@ const statusConfig = {
   failed: { icon: XCircle, label: "Failed", variant: "destructive" as const },
 };
 
-export function UploadQueueTable({ items, onRemove }: UploadQueueTableProps) {
+export function UploadQueueTable({ items, onRemove, disabled }: UploadQueueTableProps) {
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(items.length / 50));
+  const currentPage = Math.min(page, pageCount - 1);
   if (items.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -46,7 +52,7 @@ export function UploadQueueTable({ items, onRemove }: UploadQueueTableProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((item) => {
+          {items.slice(currentPage * 50, (currentPage + 1) * 50).map((item) => {
             const config = statusConfig[item.status];
             const Icon = config.icon;
             return (
@@ -80,6 +86,7 @@ export function UploadQueueTable({ items, onRemove }: UploadQueueTableProps) {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
+                      disabled={disabled}
                       onClick={() => onRemove(item.id)}
                     >
                       <Trash2 className="h-3 w-3" />
@@ -91,6 +98,11 @@ export function UploadQueueTable({ items, onRemove }: UploadQueueTableProps) {
           })}
         </TableBody>
       </Table>
+      {pageCount > 1 && <div className="flex items-center justify-between p-3 text-sm">
+        <Button variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+        <span>Page {currentPage + 1} of {pageCount} · {items.length} images</span>
+        <Button variant="outline" size="sm" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next</Button>
+      </div>}
     </div>
   );
 }
