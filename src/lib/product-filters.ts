@@ -13,6 +13,8 @@ export type DescriptionFilter = "all" | "missing" | "has";
 export interface ProductFilters {
   /** Free-text keyword query; see parseQuery for the grammar. */
   query: string;
+  /** Comma-separated exclusions; each entry is a sub-query (see parseExclusions). */
+  exclude: string;
   category: string;
   brand: string;
   vendor: string;
@@ -27,6 +29,7 @@ export const ALL = "all";
 
 export const EMPTY_FILTERS: ProductFilters = {
   query: "",
+  exclude: "",
   category: ALL,
   brand: ALL,
   vendor: ALL,
@@ -62,7 +65,7 @@ export const DESCRIPTION_OPTIONS: { value: DescriptionFilter; label: string }[] 
 
 export function countActiveFilters(filters: ProductFilters): number {
   return (Object.keys(EMPTY_FILTERS) as (keyof ProductFilters)[]).filter(
-    (key) => (filters[key] ?? EMPTY_FILTERS[key]) !== EMPTY_FILTERS[key] && !(key === "query" && !filters.query.trim()),
+    (key) => (filters[key] ?? EMPTY_FILTERS[key]) !== EMPTY_FILTERS[key] && !((key === "query" || key === "exclude") && !filters[key].trim()),
   ).length;
 }
 
@@ -77,14 +80,22 @@ export function hasActiveFilters(filters: ProductFilters): boolean {
  *   blue dream        each word must appear in some searchable field
  *   "blue dream"      the phrase must appear together
  *   -sample           exclude products containing the word
+ *   -"1g 5pk"         exclude products containing the phrase
+ *   /1g\s*5 ?pk/      regular expression (always case-insensitive)
+ *   -/\b5pk\b/        exclude by regular expression
  *   brand:kiva        restrict a term to one field (see QUERY_FIELDS)
  *   vendor:"lost farm"
+ *   name:/^lion/      a field prefix works with regexes too
  */
 export interface QueryTerm {
   text: string;
   field?: string;
   negate: boolean;
+  regex?: RegExp;
 }
+
+/** Longest regex source accepted; longer ones are searched as literal text. */
+const MAX_REGEX_LENGTH = 200;
 
 type FieldReader = (product: ProductDetail) => (string | number | null | undefined)[];
 
@@ -104,21 +115,64 @@ export const QUERY_FIELDS: Record<string, FieldReader> = {
 /** Fields searched by an unqualified term. Descriptions are opt-in via desc:. */
 const FREE_TEXT_FIELDS = ["name", "sku", "brand", "vendor", "strain", "type", "category", "size", "id"];
 
-const TERM_PATTERN = /(-)?(?:([a-z]+):)?(?:"([^"]*)"|([^\s"]+))/gi;
+const TERM_PATTERN = /(-)?(?:([a-z]+):)?(?:\/((?:\\.|[^/])+)\/|"([^"]*)"|([^\s"]+))/gi;
+
+function compileRegex(source: string): RegExp | undefined {
+  if (source.length > MAX_REGEX_LENGTH) return undefined;
+  try {
+    return new RegExp(source, "i");
+  } catch {
+    return undefined;
+  }
+}
 
 export function parseQuery(query: string): QueryTerm[] {
   const terms: QueryTerm[] = [];
   for (const match of query.matchAll(TERM_PATTERN)) {
-    const [, negate, rawField, phrase, word] = match;
+    const [, negate, rawField, regexSource, phrase, word] = match;
     const field = rawField?.toLowerCase();
     const knownField = field && field in QUERY_FIELDS ? field : undefined;
-    // An unknown prefix such as "re:order" is searched literally.
-    const text = (knownField ? (phrase ?? word ?? "") : (phrase ?? `${rawField ? `${rawField}:` : ""}${word ?? ""}`))
+    const regex = regexSource !== undefined ? compileRegex(regexSource) : undefined;
+    // An invalid regex is searched as literal text, and an unknown prefix
+    // such as "re:order" is searched literally too.
+    const raw = regexSource ?? phrase ?? word ?? "";
+    const text = (knownField ? raw : `${rawField ? `${rawField}:` : ""}${raw}`)
       .toLowerCase().replace(/\s+/g, " ").trim();
     if (!text) continue;
-    terms.push({ text, field: knownField, negate: Boolean(negate) });
+    terms.push({ text, field: knownField, negate: Boolean(negate), ...(regex ? { regex } : {}) });
   }
   return terms;
+}
+
+/**
+ * Splits an exclusion list on commas that are outside quotes and regexes.
+ * Each entry is a sub-query: a product matching all of its terms is excluded.
+ *   1g 5pk, sample      excludes (1g AND 5pk) or (sample)
+ *   /\b5 ?pk\b/, -foo    regexes and the full term grammar are allowed
+ */
+export function parseExclusions(exclude: string): QueryTerm[][] {
+  const entries: string[] = [];
+  let current = "";
+  let quoted = false;
+  let regex = false;
+  for (let i = 0; i < exclude.length; i++) {
+    const char = exclude[i];
+    if (char === "\\" && regex) {
+      current += char + (exclude[i + 1] ?? "");
+      i++;
+      continue;
+    }
+    if (char === '"' && !regex) quoted = !quoted;
+    else if (char === "/" && !quoted) regex = !regex;
+    if (char === "," && !quoted && !regex) {
+      entries.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  entries.push(current);
+  return entries.map(parseQuery).filter((terms) => terms.length > 0);
 }
 
 function haystack(product: ProductDetail, field?: string): string {
@@ -130,13 +184,19 @@ function haystack(product: ProductDetail, field?: string): string {
     .join("\n");
 }
 
+function termHits(product: ProductDetail, term: QueryTerm): boolean {
+  if (term.field === "id") {
+    return QUERY_FIELDS.id(product).some((value) => {
+      const text = String(value ?? "").toLowerCase();
+      return term.regex ? term.regex.test(text) : text === term.text;
+    });
+  }
+  const hay = haystack(product, term.field);
+  return term.regex ? term.regex.test(hay) : hay.includes(term.text);
+}
+
 export function matchesQuery(product: ProductDetail, terms: QueryTerm[]): boolean {
-  return terms.every((term) => {
-    const hit = term.field === "id"
-      ? QUERY_FIELDS.id(product).some((value) => String(value ?? "").toLowerCase() === term.text)
-      : haystack(product, term.field).includes(term.text);
-    return term.negate ? !hit : hit;
-  });
+  return terms.every((term) => (term.negate ? !termHits(product, term) : termHits(product, term)));
 }
 
 /* ------------------------------- filtering ------------------------------- */
@@ -151,6 +211,7 @@ export function filterProducts(
   inventory?: InventoryMap,
 ): ProductDetail[] {
   const terms = parseQuery(filters.query ?? "");
+  const exclusions = parseExclusions(filters.exclude ?? "");
   const description = (value: string | null) => Boolean(value && value.trim());
   return products.filter((product) => {
     if (filters.category !== ALL && product.category !== filters.category) return false;
@@ -173,7 +234,8 @@ export function filterProducts(
       if (filters.stock === "none" && stores.length > 0) return false;
       if (filters.stock !== "any" && filters.stock !== "none" && !stores.includes(filters.stock)) return false;
     }
-    return terms.length === 0 || matchesQuery(product, terms);
+    if (terms.length && !matchesQuery(product, terms)) return false;
+    return !exclusions.some((entry) => matchesQuery(product, entry));
   });
 }
 
@@ -181,6 +243,7 @@ export function filterProducts(
 
 const PARAM_KEYS: Record<keyof ProductFilters, string> = {
   query: "q",
+  exclude: "exclude",
   category: "category",
   brand: "brand",
   vendor: "vendor",
@@ -208,6 +271,7 @@ export function filtersFromParams(params: URLSearchParams): ProductFilters {
   const validStock = stock === ALL || stock === "any" || stock === "none" || (RETAIL_STORES as string[]).includes(stock);
   return {
     query: read("query"),
+    exclude: read("exclude"),
     category: read("category"),
     brand: read("brand"),
     vendor: read("vendor"),

@@ -40,7 +40,9 @@ interface ProductFilterBarProps {
 }
 
 const SEARCH_HELP =
-  'Every word must match. Use "quotes" for phrases, -word to exclude, and brand:, vendor:, sku:, strain:, type:, category:, size:, id: or desc: to target one field.';
+  'Every word must match. Use "quotes" for phrases, -word or -"phrase" to exclude, /regex/ for patterns, and brand:, vendor:, sku:, strain:, type:, category:, size:, id: or desc: to target one field.';
+const EXCLUDE_HELP =
+  'Comma-separated. Each entry hides products matching all of its words, e.g. 1g 5pk, sample. Quotes, field prefixes and /regex/ work here too.';
 
 function FilterSelect({
   value,
@@ -114,6 +116,14 @@ export function ProductFilterBar({
           title={SEARCH_HELP}
           aria-label="Search products"
         />
+        <Input
+          placeholder="Exclude, e.g. 1g 5pk, sample"
+          className="w-56 h-8"
+          value={filters.exclude}
+          onChange={(event) => set("exclude", event.target.value)}
+          title={EXCLUDE_HELP}
+          aria-label="Exclude products"
+        />
         <FilterSelect value={filters.category} onChange={(v) => set("category", v)} allLabel="All categories" options={categoryOptions} />
         <FilterSelect value={filters.brand} onChange={(v) => set("brand", v)} allLabel="All brands" options={toOptions(brands)} />
         <FilterSelect value={filters.vendor} onChange={(v) => set("vendor", v)} allLabel="All vendors" options={toOptions(vendors)} />
@@ -140,7 +150,9 @@ export function ProductFilterBar({
           <span className="text-sm text-muted-foreground ml-auto">{summary}</span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">{SEARCH_HELP}</p>
+      <p className="text-xs text-muted-foreground">
+        {SEARCH_HELP} Exclude: {EXCLUDE_HELP}
+      </p>
     </div>
   );
 }

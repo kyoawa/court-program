@@ -11,7 +11,7 @@ function load(path, imports = {}) {
 }
 const constants = load('src/lib/constants.ts');
 const imageUtils = load('src/lib/image-utils.ts', { './constants': constants });
-const { parseQuery, filterProducts, filtersToParams, filtersFromParams, buildFacets, countActiveFilters, EMPTY_FILTERS } =
+const { parseQuery, parseExclusions, filterProducts, filtersToParams, filtersFromParams, buildFacets, countActiveFilters, EMPTY_FILTERS } =
   load('src/lib/product-filters.ts', { './image-utils': imageUtils, './constants': constants });
 
 const product = (overrides = {}) => ({
@@ -93,7 +93,7 @@ test('stock filters use the inventory map: anywhere, nowhere, or one store', () 
 });
 
 test('filters round-trip through URL params and reject unknown values', () => {
-  const filters = { query: 'brand:kiva -sample', category: 'Flower', brand: 'Kiva', vendor: 'Lost Farm Distribution', strainType: 'Sativa', stock: 'HELENA', images: 'multi', description: 'has' };
+  const filters = { query: 'brand:kiva -sample', exclude: '5pk, /\\bsample\\b/', category: 'Flower', brand: 'Kiva', vendor: 'Lost Farm Distribution', strainType: 'Sativa', stock: 'HELENA', images: 'multi', description: 'has' };
   const params = filtersToParams(filters);
   assert.equal(params.get('q'), 'brand:kiva -sample');
   assert.deepEqual(plain(filtersFromParams(params)), filters);
@@ -101,7 +101,7 @@ test('filters round-trip through URL params and reject unknown values', () => {
   assert.equal(filtersToParams(EMPTY_FILTERS).toString(), '');
   assert.equal(countActiveFilters(EMPTY_FILTERS), 0);
   assert.equal(countActiveFilters({ ...EMPTY_FILTERS, query: '   ' }), 0);
-  assert.equal(countActiveFilters(filters), 8);
+  assert.equal(countActiveFilters(filters), 9);
 });
 
 test('facets are distinct, sorted and skip blanks', () => {
@@ -111,4 +111,40 @@ test('facets are distinct, sorted and skip blanks', () => {
     vendors: ['Kiva', 'Lost Farm Distribution', 'Lowell Farms'],
     strainTypes: ['Hybrid', 'Sativa'],
   });
+});
+
+const pack = (overrides) => product({ productId: 4, productName: 'Lionheart Pre-Roll 1g 5pk', category: 'Pre-Rolls', brandName: 'Lionheart Cannabis', vendorName: 'Lionheart', strain: 'Gelato', strainType: 'Hybrid', size: '5g', sku: 'PR-4', ...overrides });
+const single = product({ productId: 5, productName: 'Lionheart Pre-Roll 1g', category: 'Pre-Rolls', brandName: 'Lionheart Cannabis', vendorName: 'Lionheart', strain: 'Gelato', strainType: 'Hybrid', size: '1g', sku: 'PR-5' });
+const lionheart = [...catalog, pack(), single];
+
+test('phrase exclusions keep 1g pre-rolls but drop the 5-pack', () => {
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('brand:lionheart category:pre-roll 1g -"1g 5pk"'))), [5]);
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('brand:lionheart 1g'))), [4, 5]);
+});
+
+test('regex terms match patterns, honor field prefixes, and can be negated', () => {
+  assert.deepEqual(plain(parseQuery('/1g\\s*5 ?pk/')), [{ text: '1g\\s*5 ?pk', negate: false, regex: {} }]);
+  assert.equal(typeof parseQuery('/5 ?pk/')[0].regex.test, 'function');
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('/1g\\s*5 ?pk/'))), [4]);
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('lionheart -/\\b5 ?pk\\b/'))), [5]);
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('name:/^lionheart pre-roll 1g$/'))), [5]);
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('id:/^[45]$/'))), [4, 5]);
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('/^(blue|gelato)/ -id:/^[45]$/'))), [1, 2, 3]);
+  // Invalid or oversized regexes fall back to literal text instead of throwing.
+  assert.equal(parseQuery('/(/')[0].regex, undefined);
+  assert.deepEqual(ids(filterProducts(lionheart, withQuery('/(/'))), []);
+  assert.equal(parseQuery('/' + 'a'.repeat(201) + '/')[0].regex, undefined);
+});
+
+test('exclude list: comma-separated entries, each an all-words sub-query, with quotes and regexes', () => {
+  assert.deepEqual(plain(parseExclusions('1g 5pk, sample')), [[{ text: '1g', negate: false }, { text: '5pk', negate: false }], [{ text: 'sample', negate: false }]]);
+  assert.equal(parseExclusions('/a{1,3}/, "x, y"').length, 2);
+  assert.deepEqual(plain(parseExclusions('  ,, ')), []);
+  const run = (exclude, query = 'lionheart') => ids(filterProducts(lionheart, withQuery(query, { exclude })));
+  assert.deepEqual(run('1g 5pk'), [5]);
+  assert.deepEqual(run('5pk, size:1g'), []);
+  assert.deepEqual(run('/\\b5 ?pk\\b/'), [5]);
+  assert.deepEqual(run('"pre-roll 1g 5pk"'), [5]);
+  assert.deepEqual(run('brand:kiva, 5pk', ''), [2, 5]);
+  assert.deepEqual(run('', ''), [1, 2, 3, 4, 5]);
 });
