@@ -52,7 +52,10 @@ export function useUploadQueue() {
       const queued = items.filter((i) => i.status === "queued");
       if (queued.length === 0) return;
 
-      if (replaceExisting && new Set(queued.map(item => item.productId)).size !== queued.length) {
+      // Items keep the mode they were first started with, so check the items
+      // that will actually be replaced rather than the mode argument.
+      const replacements = queued.filter(item => item.replaceExisting ?? replaceExisting);
+      if (new Set(replacements.map(item => item.productId)).size !== replacements.length) {
         throw new Error("Replace mode requires exactly one queued image per product. Remove extra images first.");
       }
       runningRef.current = true;
@@ -60,7 +63,6 @@ export function useUploadQueue() {
       let succeeded = 0;
       let failed = 0;
       try {
-        const replacements = queued.filter(item => item.replaceExisting ?? replaceExisting);
         if (replacements.length) {
           const response = await fetch("/api/images/replace/plan", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -147,7 +149,8 @@ export function useUploadQueue() {
                         resultUrl = data.result?.imageUrl;
                         receivedSuccess = Boolean(data.result?.imageId && resultUrl);
                       } else if (data.type === "error") {
-                        error = data.error;
+                        if (data.status === 429) abortRef.current = true;
+                        error = data.status === 429 ? "Dutchie rate limit reached. Batch paused; wait before retrying." : data.error;
                       }
                     }
                   }

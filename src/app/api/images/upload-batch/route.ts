@@ -102,6 +102,8 @@ export async function POST(req: NextRequest) {
                   productName: item.productName,
                   error:
                     error instanceof Error ? error.message : "Unknown error",
+                  // Lets the client pause the batch on a Dutchie rate limit.
+                  status: (error as { status?: number })?.status,
                 })
               )
             );

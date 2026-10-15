@@ -12,7 +12,8 @@ function harness(fetch) {
     useCallback: value => value,
   };
   const exports = {};
-  vm.runInNewContext(code, { exports, require: name => name === 'react' ? react : { UPLOAD_CONCURRENCY: 3 }, fetch, crypto: require('node:crypto').webcrypto, TextDecoder, Blob });
+  class FileReader { readAsDataURL() { this.result = 'data:image/png;base64,YQ=='; queueMicrotask(() => this.onload?.()); } }
+  vm.runInNewContext(code, { exports, require: name => name === 'react' ? react : { UPLOAD_CONCURRENCY: 3 }, fetch, crypto: require('node:crypto').webcrypto, TextDecoder, Blob, FileReader });
   return () => { cursor = 0; return exports.useUploadQueue(); };
 }
 const item = productId => ({ productId, productName: `Product ${productId}`, source: { type: 'url', url: 'https://example.com/image.jpg' } });
@@ -85,4 +86,25 @@ test('rate limit pauses the queue before scheduling more products', async () => 
   render().addItems(Array.from({ length: 10 }, (_, i) => item(i + 1)));
   const result = await render().startUpload(true);
   assert.equal(result.paused, true); assert.equal(attempts, 3); assert.equal(render().stats.queued, 7);
+});
+
+test('add-mode URL uploads pause on a streamed rate-limit error', async () => {
+  let attempts = 0;
+  const message = 'data: {"type":"error","error":"Dutchie API 429: slow down","status":429}\n\n';
+  const render = harness(async () => {
+    attempts++;
+    const chunks = [new TextEncoder().encode(message)];
+    return { ok: true, body: { getReader: () => ({ read: async () => chunks.length ? { done: false, value: chunks.shift() } : { done: true } }) } };
+  });
+  render().addItems(Array.from({ length: 10 }, (_, i) => item(i + 1)));
+  const result = await render().startUpload();
+  assert.equal(result.paused, true); assert.equal(attempts, 3); assert.equal(render().stats.queued, 7);
+  assert.match(render().items.find(i => i.status === 'failed').error, /rate limit/);
+});
+test('add-mode file uploads pause on an HTTP 429', async () => {
+  let attempts = 0;
+  const render = harness(async () => { attempts++; return { ok: false, status: 429, json: async () => ({ error: 'limit' }) }; });
+  render().addItems(Array.from({ length: 6 }, (_, i) => ({ productId: i + 1, productName: 'P', source: { type: 'file', file: new Blob(['x']) } })));
+  const result = await render().startUpload();
+  assert.equal(result.paused, true); assert.equal(attempts, 3);
 });

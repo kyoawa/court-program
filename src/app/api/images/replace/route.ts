@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { sql, ensureSchema, withProductImageLock, findUploadedImageIdsByProduct, recordUploadedImage, deleteUploadedImageRecord } from "@/lib/db";
 import { setImage, removeImage } from "@/lib/dutchie-client";
-import { replaceImage, type ReplacementState } from "@/lib/replace-image";
+import { replaceImage, OPERATION_ID_PATTERN, type ReplacementState } from "@/lib/replace-image";
 import { cacheDelete } from "@/lib/cache";
 import { MAX_IMAGE_SIZE_MB } from "@/lib/constants";
 
@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const { operationId, productId, base64Image, fileName, imageUrl } = await req.json();
     if (!Number.isSafeInteger(productId) || productId <= 0 || productId > 2147483647 ||
-      typeof operationId !== "string" || !/^[0-9a-f-]{36}$/i.test(operationId) ||
+      typeof operationId !== "string" || !OPERATION_ID_PATTERN.test(operationId) ||
       (!base64Image && !imageUrl) || (base64Image && typeof base64Image !== "string") ||
       (imageUrl && (typeof imageUrl !== "string" || !/^https?:\/\//i.test(imageUrl)))) {
       return NextResponse.json({ error: "A valid product, operation, and image are required." }, { status: 400 });

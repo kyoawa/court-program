@@ -1,5 +1,15 @@
 // Checkpoints deliberately precede non-idempotent Dutchie calls. An interrupted
 // upload is not automatically repeated: Dutchie does not offer idempotency keys.
+export const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A 4xx response is a confirmed rejection: Dutchie received the request and
+// refused it, so nothing changed and the step is safe to repeat. Timeouts,
+// network failures and 5xx responses stay ambiguous.
+export function isConfirmedRejection(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status;
+  return typeof status === "number" && status >= 400 && status < 500;
+}
+
 export interface ImageMapping { imageId: number; imageUrl: string }
 export interface ReplacementState {
   phase: "planned" | "uploading" | "uploaded" | "done";
@@ -43,8 +53,7 @@ export async function replaceImage(
     try {
       image = await deps.upload();
     } catch (error) {
-      if ((error as { status?: number })?.status === 429) {
-        // A confirmed rate-limit rejection did not accept the upload.
+      if (isConfirmedRejection(error)) {
         state.phase = "planned";
         await deps.save(state);
       }
@@ -76,7 +85,7 @@ export async function replaceImage(
     try {
       result = await deps.remove(old.imageId);
     } catch (error) {
-      if ((error as { status?: number })?.status === 429) {
+      if (isConfirmedRejection(error)) {
         delete state.deletingId;
         await deps.save(state);
       }

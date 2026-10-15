@@ -87,15 +87,19 @@ test('empty image list simply uploads the replacement', async () => {
   assert.equal(f.events.some(e => e.startsWith('remove:')), false);
 });
 test('a batch of 5000 products needs one catalog read and one bulk insert', async () => {
-  let reads = 0, writes = 0;
+  let reads = 0, writes = 0, prunes = 0;
   const items = Array.from({ length: 5000 }, (_, i) => ({ operationId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, productId: i + 1 }));
   const { POST } = load('src/app/api/images/replace/plan/route.ts', {
     'next/server': { NextResponse: { json: (body, init) => ({ body, status: init?.status ?? 200 }) } },
-    '@/lib/db': { ensureSchema: async () => {}, sql: () => async (_, data) => { writes++; assert.equal(JSON.parse(data).length, 5000); } },
+    '@/lib/db': { ensureSchema: async () => {}, sql: () => async (strings, data) => {
+      if (strings[0].includes('DELETE')) { prunes++; return; }
+      writes++; assert.equal(JSON.parse(data).length, 5000);
+    } },
+    '@/lib/replace-image': load('src/lib/replace-image.ts'),
     '@/lib/dutchie-client': { getProducts: async () => { reads++; return items.map(item => ({ productId: item.productId, imageUrls: ['old'] })); } },
   });
   const result = await POST({ json: async () => ({ items }) });
-  assert.equal(result.status, 200); assert.equal(result.body.planned, 5000); assert.equal(reads, 1); assert.equal(writes, 1);
+  assert.equal(result.status, 200); assert.equal(result.body.planned, 5000); assert.equal(reads, 1); assert.equal(writes, 1); assert.equal(prunes, 1);
   const invalid = await POST({ json: async () => ({ items: [items[0], items[0]] }) });
   assert.equal(invalid.status, 400); assert.equal(writes, 1);
 });
@@ -110,4 +114,27 @@ test('confirmed delete rate limits preserve the uploaded image and allow retry',
   const f = fixture({ remove: async () => { if (limited) throw Object.assign(new Error('limit'), { status: 429 }); return { result: true }; } });
   await assert.rejects(f.run(), /limit/); assert.equal(f.saved.deletingId, undefined);
   limited = false; await f.run(); assert.equal(f.events.filter(e => e === 'upload').length, 1);
+});
+
+test('any 4xx rejection on upload is safe to retry; 5xx and timeouts stay uncertain', async () => {
+  for (const status of [400, 413, 422]) {
+    let uploads = 0;
+    const f = fixture({ upload: async () => { uploads++; if (uploads === 1) throw Object.assign(new Error('rejected'), { status }); return { imageId: 3, imageUrl: 'new' }; } });
+    await assert.rejects(f.run(), /rejected/); assert.equal(f.saved.phase, 'planned');
+    await f.run(); assert.equal(uploads, 2); assert.equal(f.saved.phase, 'done');
+  }
+  for (const status of [500, 502, 504]) {
+    const f = fixture({ upload: async () => { throw Object.assign(new Error('gateway'), { status }); } });
+    await assert.rejects(f.run(), /gateway/); assert.equal(f.saved.phase, 'uploading');
+    await assert.rejects(f.run(), /uncertain/);
+  }
+});
+test('any 4xx rejection on delete clears the uncertain marker; 5xx keeps it', async () => {
+  let fail = true;
+  const f = fixture({ remove: async () => { if (fail) throw Object.assign(new Error('rejected'), { status: 404 }); return { result: true }; } });
+  await assert.rejects(f.run(), /rejected/); assert.equal(f.saved.deletingId, undefined);
+  fail = false; await f.run(); assert.equal(f.saved.phase, 'done');
+  const g = fixture({ remove: async () => { throw Object.assign(new Error('gateway'), { status: 503 }); } });
+  await assert.rejects(g.run(), /gateway/); assert.equal(g.saved.deletingId, 1);
+  await assert.rejects(g.run(), /uncertain/);
 });

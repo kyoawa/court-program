@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Node test harnesses use CommonJS require() by design.
+    "tests/**",
   ]),
 ]);
 

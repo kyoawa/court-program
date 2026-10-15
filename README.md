@@ -9,7 +9,7 @@ Internal tool for managing product images and descriptions across dispensary onl
 - **UI:** Tailwind CSS 4, shadcn/ui, Radix UI
 - **AI:** OpenAI (product description generation)
 - **Data Fetching:** SWR
-- **Deployment:** Vercel (auto-deploys on push)
+- **Deployment:** Railway (the `court-program` service deploys from `main`)
 
 ## Getting Started
 
@@ -43,4 +43,4 @@ Internal tool for managing product images and descriptions across dispensary onl
 
 ## Deployment
 
-The app deploys automatically to Vercel on push to the `main` branch.
+The app runs on Railway as the `court-program` service next to its Postgres database and redeploys on push to the `main` branch. Long-running routes such as bulk image replacement are not subject to a serverless function timeout there.
