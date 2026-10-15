@@ -69,8 +69,14 @@ export interface ImageSearchResult {
   thumbnailUrl: string;
   originalUrl: string;
   title: string;
+  /** Where the image came from: "Leafly", "Dutchie", or a web host. */
   source?: string;
+  /** The product page the image was taken from, when known. */
+  pageUrl?: string;
 }
+
+/** "brand" looks on Dutchie and Leafly product pages; "web" is a general image search. */
+export type ImageSearchSource = "brand" | "web";
 
 export interface ProductSearchRequest {
   productId: number;

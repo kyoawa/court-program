@@ -4,7 +4,9 @@ import { Suspense, useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProducts } from "@/hooks/use-products";
 import { useInventory } from "@/hooks/use-inventory";
+import { useImageSearch } from "@/hooks/use-image-search";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
+import { ImageSearchDialog } from "@/components/products/image-search-dialog";
 import { ProductTable } from "@/components/products/product-table";
 import { ProductFilterBar } from "@/components/products/product-filter-bar";
 import { EMPTY_FILTERS, filterProducts } from "@/lib/product-filters";
@@ -25,6 +27,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { ProductDetail } from "@/lib/types";
@@ -44,6 +47,8 @@ function UploadPageContent() {
   });
   const { inventory } = useInventory();
   const queue = useUploadQueue();
+  const imageSearch = useImageSearch();
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -72,6 +77,21 @@ function UploadPageContent() {
     () => products.filter((p) => selectedIds.has(p.productId)),
     [products, selectedIds]
   );
+
+  function handleFindImages() {
+    if (selectedProducts.length === 0) {
+      toast.error("Select at least one product first");
+      return;
+    }
+    setSearchDialogOpen(true);
+    imageSearch.startSearch(selectedProducts.map((p) => ({
+      productId: p.productId,
+      productName: p.productName ?? "Unknown",
+      brandName: p.brandName,
+      category: p.category,
+      strain: p.strain,
+    })));
+  }
 
   function handleFilesSelected(files: File[]) {
     if (queue.isRunning) { toast.error("Pause the batch before adding images."); return; }
@@ -276,6 +296,10 @@ function UploadPageContent() {
             {selectedIds.size > 0 && (
               <>
                 <Badge variant="default">{selectedIds.size} selected</Badge>
+                <Button variant="outline" size="sm" onClick={handleFindImages}>
+                  <Search className="h-4 w-4 mr-1" />
+                  Find Images
+                </Button>
                 <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
                   Clear selection
                 </Button>
@@ -472,6 +496,21 @@ function UploadPageContent() {
           )}
         </div>
       </div>
+
+      <ImageSearchDialog
+        open={searchDialogOpen}
+        onOpenChange={(open) => {
+          setSearchDialogOpen(open);
+          if (!open) imageSearch.reset();
+        }}
+        results={imageSearch.results}
+        isSearching={imageSearch.isSearching}
+        progress={imageSearch.progress}
+        onSearchSingle={imageSearch.searchSingle}
+        onRetryFailed={imageSearch.retryFailed}
+        source={imageSearch.source}
+        onSourceChange={imageSearch.changeSource}
+      />
     </div>
   );
 }

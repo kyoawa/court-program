@@ -1,10 +1,58 @@
 import { NextRequest } from "next/server";
-import { buildSearchQuery } from "@/lib/search-query";
+import { buildSearchQuery, cleanProductName } from "@/lib/search-query";
 import {
   IMAGE_SEARCH_DELAY_MS,
   IMAGE_SEARCH_MAX_RESULTS,
 } from "@/lib/constants";
-import type { ImageSearchResult, ProductSearchRequest } from "@/lib/types";
+import {
+  findBrandImages,
+  isAllowedProductPage,
+  type WebSearchHit,
+} from "@/lib/brand-image-finder";
+import type { ImageSearchResult, ImageSearchSource, ProductSearchRequest } from "@/lib/types";
+
+const PAGE_FETCH_TIMEOUT_MS = 10000;
+const PAGE_MAX_BYTES = 2 * 1024 * 1024;
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+/** Site-scoped Brave web search, used to find Dutchie menu and Leafly product pages. */
+async function braveWebSearch(query: string): Promise<WebSearchHit[]> {
+  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+  if (!apiKey) return [];
+  const params = new URLSearchParams({ q: query, count: "10", safesearch: "off" });
+  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+    headers: { Accept: "application/json", "Accept-Encoding": "gzip", "X-Subscription-Token": apiKey },
+    signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Brave API error ${response.status}`);
+  const data = await response.json();
+  return ((data.web?.results ?? []) as { url?: string; title?: string }[])
+    .filter((hit) => typeof hit.url === "string")
+    .map((hit) => ({ url: hit.url as string, title: hit.title }));
+}
+
+/** Reads a Dutchie or Leafly product page. Other hosts are never fetched. */
+async function fetchProductPage(url: string): Promise<string | null> {
+  if (!isAllowedProductPage(url)) return null;
+  const response = await fetch(url, {
+    headers: { "User-Agent": BROWSER_USER_AGENT, Accept: "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9" },
+    redirect: "follow",
+    signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok || !response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size < PAGE_MAX_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.byteLength;
+  }
+  await reader.cancel().catch(() => undefined);
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 function encode(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
@@ -47,7 +95,8 @@ async function searchBraveImages(
 
   const data = await response.json();
 
-  return (data.results || []).slice(0, maxResults).map((r: any) => ({
+  type BraveImage = { properties?: { url?: string }; thumbnail?: { src?: string }; title?: string; source?: string };
+  return ((data.results || []) as BraveImage[]).slice(0, maxResults).map((r) => ({
     originalUrl: r.properties?.url || r.thumbnail?.src || "",
     thumbnailUrl: r.thumbnail?.src || r.properties?.url || "",
     title: r.title || "",
@@ -59,9 +108,12 @@ const CONCURRENCY = 3;
 
 export async function POST(req: NextRequest) {
   try {
-    const { products } = (await req.json()) as {
+    const { products, source: requestedSource } = (await req.json()) as {
       products: ProductSearchRequest[];
+      source?: ImageSearchSource;
     };
+    const source: ImageSearchSource = requestedSource === "web" ? "web" : "brand";
+    const hasWebSearch = Boolean(process.env.BRAVE_SEARCH_API_KEY);
 
     if (!products || !Array.isArray(products) || products.length === 0) {
       return new Response(
@@ -80,7 +132,10 @@ export async function POST(req: NextRequest) {
             await delay(IMAGE_SEARCH_DELAY_MS);
           }
 
-          const query = product.customQuery?.trim() || buildSearchQuery(product);
+          const query = product.customQuery?.trim() ||
+            (source === "brand"
+              ? [product.brandName, cleanProductName(product.productName ?? "")].filter(Boolean).join(" ")
+              : buildSearchQuery(product));
 
           controller.enqueue(
             encoder.encode(
@@ -93,10 +148,22 @@ export async function POST(req: NextRequest) {
           );
 
           try {
-            const images = await searchBraveImages(
-              query,
-              IMAGE_SEARCH_MAX_RESULTS
-            );
+            let images: ImageSearchResult[];
+            let note: string | undefined;
+            if (source === "brand") {
+              // A custom query replaces the product name for the page lookup.
+              const target = product.customQuery?.trim()
+                ? { ...product, productName: product.customQuery.trim() }
+                : product;
+              const outcome = await findBrandImages(target, {
+                fetchPage: fetchProductPage,
+                webSearch: hasWebSearch ? braveWebSearch : undefined,
+              }, { maxResults: IMAGE_SEARCH_MAX_RESULTS });
+              images = outcome.images;
+              note = outcome.note;
+            } else {
+              images = await searchBraveImages(query, IMAGE_SEARCH_MAX_RESULTS);
+            }
 
             controller.enqueue(
               encoder.encode(
@@ -104,6 +171,7 @@ export async function POST(req: NextRequest) {
                   type: "results",
                   productId: product.productId,
                   images,
+                  note,
                 })
               )
             );

@@ -4,7 +4,7 @@ const DOSAGE_PATTERN =
 const FRACTION_PATTERN = /\b\d+\/\d+\s*(?:oz|g)?\b/gi;
 const PARENS_DOSAGE = /\(\s*\d*\.?\d+\s*(?:mg|g|oz|ml)\s*\)/gi;
 
-function cleanProductName(name: string): string {
+export function cleanProductName(name: string): string {
   name = name.replace(PARENS_DOSAGE, "");
   name = name.replace(DOSAGE_PATTERN, "");
   name = name.replace(FRACTION_PATTERN, "");

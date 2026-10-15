@@ -102,7 +102,7 @@ export default function RecentProductsPage() {
             </Button>
             <Button variant="outline" onClick={handleSearchWeb}>
               <Search className="h-4 w-4 mr-2" />
-              Search Web for Images ({selectedIds.size})
+              Find Images ({selectedIds.size})
             </Button>
           </>
         )}
@@ -130,7 +130,10 @@ export default function RecentProductsPage() {
         results={imageSearch.results}
         isSearching={imageSearch.isSearching}
         progress={imageSearch.progress}
+        onSearchSingle={imageSearch.searchSingle}
         onRetryFailed={imageSearch.retryFailed}
+        source={imageSearch.source}
+        onSourceChange={imageSearch.changeSource}
       />
     </div>
   );

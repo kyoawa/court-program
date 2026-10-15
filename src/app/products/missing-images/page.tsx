@@ -248,7 +248,7 @@ export default function MissingImagesPage() {
             </Button>
             <Button variant="outline" onClick={handleSearchWeb}>
               <Search className="h-4 w-4 mr-2" />
-              Search Web ({selectedIds.size})
+              Find Images ({selectedIds.size})
             </Button>
             <Button variant="outline" onClick={handleApplyFromRepo} disabled={applyingRepo}>
               {applyingRepo ? (
@@ -287,6 +287,8 @@ export default function MissingImagesPage() {
         isSearching={imageSearch.isSearching}
         progress={imageSearch.progress}
         onSearchSingle={imageSearch.searchSingle}
+        source={imageSearch.source}
+        onSourceChange={imageSearch.changeSource}
         onRetryFailed={imageSearch.retryFailed}
       />
     </div>

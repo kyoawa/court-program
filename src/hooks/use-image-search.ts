@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import type { ImageSearchResult, ProductSearchRequest } from "@/lib/types";
+import type { ImageSearchResult, ImageSearchSource, ProductSearchRequest } from "@/lib/types";
 
 export interface ProductSearchResult {
   productId: number;
@@ -10,292 +10,149 @@ export interface ProductSearchResult {
   status: "pending" | "searching" | "done" | "error";
   images: ImageSearchResult[];
   error?: string;
+  /** Server-side explanation, e.g. a source that could not be searched. */
+  note?: string;
 }
 
-export function useImageSearch() {
+type StreamEvent =
+  | { type: "searching"; productId: number; query: string }
+  | { type: "results"; productId: number; images: ImageSearchResult[]; note?: string }
+  | { type: "search_error"; productId: number; error: string }
+  | { type: "done" };
+
+export function useImageSearch(initialSource: ImageSearchSource = "brand") {
   const [results, setResults] = useState<ProductSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [source, setSource] = useState<ImageSearchSource>(initialSource);
   const abortRef = useRef<AbortController | null>(null);
+  const lastProductsRef = useRef<ProductSearchRequest[]>([]);
+  const sourceRef = useRef<ImageSearchSource>(initialSource);
+
+  const update = useCallback((productId: number, patch: Partial<ProductSearchResult>) => {
+    setResults((prev) => prev.map((r) => (r.productId === productId ? { ...r, ...patch } : r)));
+  }, []);
+
+  /** Streams one search request and applies its events; resolves when the stream ends. */
+  const run = useCallback(
+    async (products: ProductSearchRequest[], searchSource: ImageSearchSource, signal?: AbortSignal, onDone?: () => void) => {
+      const res = await fetch("/api/images/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products, source: searchSource }),
+        signal,
+      });
+      if (!res.ok) throw new Error(`Search request failed: ${res.status}`);
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6)) as StreamEvent;
+          if (data.type === "searching") {
+            update(data.productId, { status: "searching", query: data.query });
+          } else if (data.type === "results") {
+            onDone?.();
+            update(data.productId, { status: "done", images: data.images, note: data.note });
+          } else if (data.type === "search_error") {
+            onDone?.();
+            update(data.productId, { status: "error", error: data.error });
+          }
+        }
+      }
+    },
+    [update]
+  );
 
   const startSearch = useCallback(
-    async (products: ProductSearchRequest[]) => {
+    async (products: ProductSearchRequest[], searchSource: ImageSearchSource = sourceRef.current) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-
+      lastProductsRef.current = products;
+      sourceRef.current = searchSource;
+      setSource(searchSource);
       setIsSearching(true);
       setProgress({ current: 0, total: products.length });
-
-      // Initialize all as pending
-      setResults(
-        products.map((p) => ({
-          productId: p.productId,
-          productName: p.productName,
-          query: "",
-          status: "pending" as const,
-          images: [],
-        }))
-      );
-
+      setResults(products.map((p) => ({ productId: p.productId, productName: p.productName, query: "", status: "pending" as const, images: [] })));
+      let done = 0;
       try {
-        const res = await fetch("/api/images/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ products }),
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          throw new Error(`Search request failed: ${res.status}`);
-        }
-
-        const reader = res.body?.getReader();
-        const decoder = new TextDecoder();
-        let done = 0;
-
-        if (reader) {
-          let buffer = "";
-          while (true) {
-            const { done: streamDone, value } = await reader.read();
-            if (streamDone) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = JSON.parse(line.slice(6));
-
-              if (data.type === "searching") {
-                setResults((prev) =>
-                  prev.map((r) =>
-                    r.productId === data.productId
-                      ? { ...r, status: "searching" as const, query: data.query }
-                      : r
-                  )
-                );
-              } else if (data.type === "results") {
-                done++;
-                setProgress({ current: done, total: products.length });
-                setResults((prev) =>
-                  prev.map((r) =>
-                    r.productId === data.productId
-                      ? {
-                          ...r,
-                          status: "done" as const,
-                          images: data.images,
-                        }
-                      : r
-                  )
-                );
-              } else if (data.type === "search_error") {
-                done++;
-                setProgress({ current: done, total: products.length });
-                setResults((prev) =>
-                  prev.map((r) =>
-                    r.productId === data.productId
-                      ? {
-                          ...r,
-                          status: "error" as const,
-                          error: data.error,
-                        }
-                      : r
-                  )
-                );
-              }
-            }
-          }
-        }
+        await run(products, searchSource, controller.signal, () => setProgress({ current: ++done, total: products.length }));
       } catch (err) {
-        if ((err as Error).name !== "AbortError") {
-          console.error("Image search failed:", err);
-        }
+        if ((err as Error).name !== "AbortError") console.error("Image search failed:", err);
       } finally {
-        setIsSearching(false);
+        if (abortRef.current === controller) setIsSearching(false);
       }
     },
-    []
+    [run]
+  );
+
+  /** Re-runs the last search against a different source. */
+  const changeSource = useCallback(
+    (next: ImageSearchSource) => {
+      if (next === sourceRef.current && results.length) return;
+      if (lastProductsRef.current.length) void startSearch(lastProductsRef.current, next);
+      else { sourceRef.current = next; setSource(next); }
+    },
+    [results.length, startSearch]
   );
 
   const searchSingle = useCallback(
     async (productId: number, customQuery: string) => {
-      setResults((prev) =>
-        prev.map((r) =>
-          r.productId === productId
-            ? { ...r, status: "searching" as const, query: customQuery, images: [], error: undefined }
-            : r
-        )
-      );
-
+      const previous = lastProductsRef.current.find((p) => p.productId === productId);
+      update(productId, { status: "searching", query: customQuery, images: [], error: undefined, note: undefined });
       try {
-        const res = await fetch("/api/images/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            products: [
-              {
-                productId,
-                productName: customQuery,
-                brandName: null,
-                category: null,
-                strain: null,
-                customQuery,
-              },
-            ],
-          }),
-        });
-
-        if (!res.ok) throw new Error(`Search failed: ${res.status}`);
-
-        const reader = res.body?.getReader();
-        const decoder = new TextDecoder();
-
-        if (reader) {
-          let buffer = "";
-          while (true) {
-            const { done: streamDone, value } = await reader.read();
-            if (streamDone) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = JSON.parse(line.slice(6));
-
-              if (data.type === "results") {
-                setResults((prev) =>
-                  prev.map((r) =>
-                    r.productId === data.productId
-                      ? { ...r, status: "done" as const, images: data.images }
-                      : r
-                  )
-                );
-              } else if (data.type === "search_error") {
-                setResults((prev) =>
-                  prev.map((r) =>
-                    r.productId === data.productId
-                      ? { ...r, status: "error" as const, error: data.error }
-                      : r
-                  )
-                );
-              }
-            }
-          }
-        }
+        await run([{
+          productId,
+          productName: customQuery,
+          brandName: previous?.brandName ?? null,
+          category: previous?.category ?? null,
+          strain: previous?.strain ?? null,
+          customQuery,
+        }], sourceRef.current);
       } catch (err) {
-        setResults((prev) =>
-          prev.map((r) =>
-            r.productId === productId
-              ? { ...r, status: "error" as const, error: (err as Error).message }
-              : r
-          )
-        );
+        update(productId, { status: "error", error: (err as Error).message });
       }
     },
-    []
+    [run, update]
   );
 
   const retryFailed = useCallback(async () => {
     const errored = results.filter((r) => r.status === "error");
     if (errored.length === 0) return;
-
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-
     setIsSearching(true);
-    const totalToRetry = errored.length;
-    setProgress({ current: 0, total: totalToRetry });
-
-    // Reset errored products back to pending
-    setResults((prev) =>
-      prev.map((r) =>
-        r.status === "error"
-          ? { ...r, status: "pending" as const, error: undefined, images: [] }
-          : r
-      )
-    );
-
-    const retryProducts: ProductSearchRequest[] = errored.map((r) => ({
-      productId: r.productId,
-      productName: r.productName,
-      brandName: null,
-      category: null,
-      strain: null,
-      customQuery: r.query || undefined,
-    }));
-
+    setProgress({ current: 0, total: errored.length });
+    setResults((prev) => prev.map((r) => (r.status === "error" ? { ...r, status: "pending" as const, error: undefined, images: [] } : r)));
+    const retryProducts: ProductSearchRequest[] = errored.map((r) => {
+      const previous = lastProductsRef.current.find((p) => p.productId === r.productId);
+      return {
+        productId: r.productId,
+        productName: r.productName,
+        brandName: previous?.brandName ?? null,
+        category: previous?.category ?? null,
+        strain: previous?.strain ?? null,
+        customQuery: r.query || undefined,
+      };
+    });
+    let done = 0;
     try {
-      const res = await fetch("/api/images/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ products: retryProducts }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) throw new Error(`Retry request failed: ${res.status}`);
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let done = 0;
-
-      if (reader) {
-        let buffer = "";
-        while (true) {
-          const { done: streamDone, value } = await reader.read();
-          if (streamDone) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = JSON.parse(line.slice(6));
-
-            if (data.type === "searching") {
-              setResults((prev) =>
-                prev.map((r) =>
-                  r.productId === data.productId
-                    ? { ...r, status: "searching" as const, query: data.query }
-                    : r
-                )
-              );
-            } else if (data.type === "results") {
-              done++;
-              setProgress({ current: done, total: totalToRetry });
-              setResults((prev) =>
-                prev.map((r) =>
-                  r.productId === data.productId
-                    ? { ...r, status: "done" as const, images: data.images }
-                    : r
-                )
-              );
-            } else if (data.type === "search_error") {
-              done++;
-              setProgress({ current: done, total: totalToRetry });
-              setResults((prev) =>
-                prev.map((r) =>
-                  r.productId === data.productId
-                    ? { ...r, status: "error" as const, error: data.error }
-                    : r
-                )
-              );
-            }
-          }
-        }
-      }
+      await run(retryProducts, sourceRef.current, controller.signal, () => setProgress({ current: ++done, total: errored.length }));
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        console.error("Retry failed:", err);
-      }
+      if ((err as Error).name !== "AbortError") console.error("Retry failed:", err);
     } finally {
-      setIsSearching(false);
+      if (abortRef.current === controller) setIsSearching(false);
     }
-  }, [results]);
+  }, [results, run]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -309,5 +166,5 @@ export function useImageSearch() {
     setProgress({ current: 0, total: 0 });
   }, []);
 
-  return { results, isSearching, progress, startSearch, searchSingle, retryFailed, stop, reset };
+  return { results, isSearching, progress, source, changeSource, startSearch, searchSingle, retryFailed, stop, reset };
 }

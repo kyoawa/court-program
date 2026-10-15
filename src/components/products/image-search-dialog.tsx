@@ -15,9 +15,15 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Loader2, AlertCircle, ImageOff, Check, Search, RotateCcw, FolderPlus } from "lucide-react";
+import { Loader2, AlertCircle, ImageOff, Check, Search, RotateCcw, FolderPlus, ExternalLink, Info } from "lucide-react";
 import { toast } from "sonner";
 import type { ProductSearchResult } from "@/hooks/use-image-search";
+import type { ImageSearchSource } from "@/lib/types";
+
+const SOURCE_OPTIONS: { value: ImageSearchSource; label: string; hint: string }[] = [
+  { value: "brand", label: "Dutchie & Leafly", hint: "Official product images from the brand's Leafly page and other dispensaries' Dutchie menus." },
+  { value: "web", label: "Web images", hint: "General image search across the web." },
+];
 
 interface ImageSearchDialogProps {
   open: boolean;
@@ -27,6 +33,8 @@ interface ImageSearchDialogProps {
   progress: { current: number; total: number };
   onSearchSingle?: (productId: number, customQuery: string) => void;
   onRetryFailed?: () => void;
+  source?: ImageSearchSource;
+  onSourceChange?: (source: ImageSearchSource) => void;
 }
 
 export function ImageSearchDialog({
@@ -37,6 +45,8 @@ export function ImageSearchDialog({
   progress,
   onSearchSingle,
   onRetryFailed,
+  source,
+  onSourceChange,
 }: ImageSearchDialogProps) {
   const router = useRouter();
   // productId -> selected image URL
@@ -93,12 +103,34 @@ export function ImageSearchDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-4xl max-w-[calc(100%-1rem)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Web Image Search Results</DialogTitle>
+          <DialogTitle>Find Product Images</DialogTitle>
           <DialogDescription>
             Select one image per product to queue for upload. Click an image to
             select it, click again to deselect.
           </DialogDescription>
         </DialogHeader>
+
+        {source && onSourceChange && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm text-muted-foreground">Source:</span>
+            {SOURCE_OPTIONS.map((option) => (
+              <Button
+                key={option.value}
+                size="sm"
+                variant={source === option.value ? "default" : "outline"}
+                className="h-8 text-xs"
+                title={option.hint}
+                disabled={isSearching}
+                onClick={() => onSourceChange(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+            <span className="text-xs text-muted-foreground">
+              {SOURCE_OPTIONS.find((option) => option.value === source)?.hint}
+            </span>
+          </div>
+        )}
 
         {isSearching && (
           <div className="space-y-2">
@@ -256,7 +288,14 @@ function ProductResultCard({
       {result.status === "searching" && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Searching Google Images...
+          Searching...
+        </div>
+      )}
+
+      {result.note && (
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Info className="h-3 w-3 mt-0.5 shrink-0" />
+          {result.note}
         </div>
       )}
 
@@ -307,7 +346,23 @@ function ProductResultCard({
                     <Check className="h-3 w-3" />
                   </div>
                 )}
+                {img.source && (
+                  <span className="absolute top-1 left-1 rounded bg-background/85 px-1 py-0.5 text-[10px] font-medium leading-none">
+                    {img.source}
+                  </span>
+                )}
               </button>
+              {img.pageUrl && (
+                <a
+                  href={img.pageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="absolute bottom-1 right-1 bg-background/80 hover:bg-background text-foreground rounded p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title={`Open on ${img.source ?? "source"}`}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
               <button
                 type="button"
                 onClick={() => handleSaveToRepo(img.originalUrl)}
