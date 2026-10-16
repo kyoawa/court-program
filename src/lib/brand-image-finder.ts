@@ -156,7 +156,7 @@ export function extractProductImages(html: string, pageUrl: string): string[] {
   return images;
 }
 
-function pageTitle(html: string): string {
+export function pageTitle(html: string): string {
   const og = metaContent(html, ["og:title"])[0];
   if (og) return og;
   const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);

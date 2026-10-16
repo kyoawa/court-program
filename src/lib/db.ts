@@ -117,6 +117,24 @@ export async function initSchema() {
     ALTER TABLE repository_images
     ADD COLUMN IF NOT EXISTS excluded_product_ids INTEGER[] NOT NULL DEFAULT '{}'::INTEGER[]
   `;
+  // Where a scraped image came from, so brand source scans can skip it.
+  await query`ALTER TABLE repository_images ADD COLUMN IF NOT EXISTS source_url TEXT`;
+  await query`CREATE INDEX IF NOT EXISTS idx_repository_images_source ON repository_images(source_url)`;
+
+  // Saved third-party pages (brand sites, Leafly, Dutchie menus) to scan for product images.
+  await query`
+    CREATE TABLE IF NOT EXISTS brand_sources (
+      id SERIAL PRIMARY KEY,
+      brand_name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      label TEXT,
+      path_prefix TEXT,
+      last_scanned_at TIMESTAMPTZ,
+      last_scan_summary JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (brand_name, url)
+    )
+  `;
 
   await query`
     CREATE TABLE IF NOT EXISTS matching_rules (

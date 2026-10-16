@@ -5,9 +5,10 @@ const FRACTION_PATTERN = /\b\d+\/\d+\s*(?:oz|g)?\b/gi;
 const PARENS_DOSAGE = /\(\s*\d*\.?\d+\s*(?:mg|g|oz|ml)\s*\)/gi;
 
 export function cleanProductName(name: string): string {
-  name = name.replace(PARENS_DOSAGE, "");
-  name = name.replace(DOSAGE_PATTERN, "");
-  name = name.replace(FRACTION_PATTERN, "");
+  // Replace with a space so the words on either side do not fuse ("Kush 1g Pre" -> "Kush Pre").
+  name = name.replace(PARENS_DOSAGE, " ");
+  name = name.replace(DOSAGE_PATTERN, " ");
+  name = name.replace(FRACTION_PATTERN, " ");
   name = name.replace(/(\s*-\s*)+/g, " - ");
   name = name.replace(/^\s*-\s*|\s*-\s*$/g, "");
   name = name.replace(/\s+/g, " ").trim();

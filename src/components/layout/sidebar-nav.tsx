@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clock, ImageOff, Upload, Package, FolderOpen, LayoutGrid } from "lucide-react";
+import { Clock, ImageOff, Upload, Package, FolderOpen, LayoutGrid, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -30,6 +30,11 @@ const navItems = [
     href: "/repository",
     label: "Image Repository",
     icon: FolderOpen,
+  },
+  {
+    href: "/brand-sources",
+    label: "Brand Sources",
+    icon: Globe,
   },
 ];
 
