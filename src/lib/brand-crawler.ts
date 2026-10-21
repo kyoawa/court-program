@@ -341,3 +341,19 @@ export async function crawlBrandSource(
 
   return { candidates: Array.from(candidates.values()), pagesVisited, truncated, truncatedReason, errors };
 }
+
+/* -------------------------------- age gates -------------------------------- */
+
+const GATE_WORDS = /age[\s_-]?(gate|verif|check|confirm)|are you (21|18|19|over|of legal)|must be (21|18|19)|(21|18|19)\+? (years|or older)|verify your age|confirm your age|enter your (date of birth|birth)/i;
+
+/**
+ * True when a page reads like an age confirmation rather than content: gate
+ * wording and little product material. Used only to tell the user that the
+ * site needs their browser cookies before it will show products.
+ */
+export function looksLikeAgeGate(html: string): boolean {
+  if (!GATE_WORDS.test(html)) return false;
+  const productLinks = (html.match(/href=["'][^"']*\/(products?|shop|item|menu)\//gi) ?? []).length;
+  const images = (html.match(/<img\b/gi) ?? []).length;
+  return productLinks < 3 && images < 12;
+}

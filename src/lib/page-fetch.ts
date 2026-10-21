@@ -39,18 +39,79 @@ async function readCapped(response: Response, maxBytes: number): Promise<Buffer 
   return Buffer.concat(chunks);
 }
 
-export async function fetchHtml(url: string): Promise<string | null> {
+/**
+ * Per-site cookie jar for one crawl: holds the cookies the user pasted for a
+ * source plus any the site sets while crawling. Cookies are keyed by host
+ * (www. stripped) and are never sent to a different site.
+ */
+export class CookieJar {
+  private cookies = new Map<string, Map<string, string>>();
+
+  private key(url: string): string {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  }
+
+  /** Adds cookies from a Cookie-header style string ("a=1; b=2") for a site. */
+  addHeader(url: string, header: string | null | undefined) {
+    if (!header) return;
+    const site = this.cookies.get(this.key(url)) ?? new Map<string, string>();
+    for (const part of header.split(";")) {
+      const index = part.indexOf("=");
+      if (index <= 0) continue;
+      site.set(part.slice(0, index).trim(), part.slice(index + 1).trim());
+    }
+    this.cookies.set(this.key(url), site);
+  }
+
+  /** Records Set-Cookie headers from a response. */
+  addSetCookies(url: string, setCookies: string[]) {
+    for (const raw of setCookies) this.addHeader(url, raw.split(";")[0]);
+  }
+
+  header(url: string): string | undefined {
+    const site = this.cookies.get(this.key(url));
+    if (!site?.size) return undefined;
+    return Array.from(site.entries()).map(([name, value]) => `${name}=${value}`).join("; ");
+  }
+}
+
+function pageHeaders(url: string, jar?: CookieJar): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": USER_AGENT,
+    Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
+  const cookie = jar?.header(url);
+  if (cookie) headers.Cookie = cookie;
+  return headers;
+}
+
+export async function fetchHtml(url: string, options: { jar?: CookieJar } = {}): Promise<string | null> {
   if (!isPublicHttpUrl(url)) return null;
-  const response = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" },
-    redirect: "follow",
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const type = response.headers.get("content-type") ?? "";
-  if (type && !/html|xml/i.test(type)) return null;
-  const body = await readCapped(response, HTML_MAX_BYTES);
-  return body ? body.toString("utf8") : null;
+  // Redirects are followed by hand so cookies set on each hop are kept.
+  let current = url;
+  for (let hop = 0; hop < 6; hop++) {
+    const response = await fetch(current, {
+      headers: pageHeaders(current, options.jar),
+      redirect: "manual",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    options.jar?.addSetCookies(current, response.headers.getSetCookie?.() ?? []);
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return null;
+      const next = new URL(location, current).toString();
+      if (!isPublicHttpUrl(next)) return null;
+      current = next;
+      continue;
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const type = response.headers.get("content-type") ?? "";
+    if (type && !/html|xml/i.test(type)) return null;
+    const bytes = await readCapped(response, HTML_MAX_BYTES);
+    return bytes ? bytes.toString("utf8") : null;
+  }
+  return null;
 }
 
 export async function fetchImage(url: string, maxBytes: number): Promise<{ buffer: Buffer; mimeType: string }> {

@@ -135,6 +135,9 @@ export async function initSchema() {
       UNIQUE (brand_name, url)
     )
   `;
+  // Optional Cookie header the user copies from their own browser session
+  // for sites that need an age confirmation or a login before showing products.
+  await query`ALTER TABLE brand_sources ADD COLUMN IF NOT EXISTS cookies TEXT`;
 
   await query`
     CREATE TABLE IF NOT EXISTS matching_rules (
