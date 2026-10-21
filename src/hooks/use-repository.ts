@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import type { RepositoryImage } from "@/lib/types";
+import type { RuleConflict } from "@/app/api/repository/conflicts/route";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url, { cache: "no-store" });
@@ -28,4 +29,14 @@ export function useRepository() {
     isLoading,
     mutate,
   };
+}
+
+/** Products whose rules match more than one image; loaded on demand. */
+export function useRuleConflicts(enabled: boolean) {
+  const { data, error, isLoading, mutate } = useSWR<{ conflicts: RuleConflict[]; imageNames: Record<string, string | null> }>(
+    enabled ? "/api/repository/conflicts" : null,
+    fetcher,
+    { revalidateOnFocus: false }
+  );
+  return { conflicts: data?.conflicts ?? [], imageNames: data?.imageNames ?? {}, error, isLoading, mutate };
 }

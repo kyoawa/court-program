@@ -10,9 +10,10 @@ export async function GET() {
     const query = sql();
 
     const images = await query`
-      SELECT ri.id, ri.name, ri.file_name, ri.mime_type, ri.group_name, ri.created_at,
+      SELECT ri.id, ri.name, ri.file_name, ri.mime_type, ri.group_name, ri.created_at, ri.updated_at, ri.source_url,
              COALESCE(ri.excluded_product_ids, '{}'::INTEGER[]) as excluded_product_ids,
-             (SELECT COUNT(*) FROM matching_rules WHERE image_id = ri.id) as rules_count
+             (SELECT COUNT(*) FROM matching_rules WHERE image_id = ri.id) as rules_count,
+             (SELECT COUNT(DISTINCT product_id) FROM uploaded_images u WHERE u.repository_image_id = ri.id) as applied_count
       FROM repository_images ri
       ORDER BY ri.group_name NULLS LAST, ri.created_at DESC
     `;
@@ -39,6 +40,9 @@ export async function GET() {
       mimeType: img.mime_type,
       groupName: img.group_name ?? null,
       createdAt: img.created_at,
+      updatedAt: img.updated_at ?? null,
+      sourceUrl: img.source_url ?? null,
+      appliedCount: Number(img.applied_count),
       excludedProductIds: (img.excluded_product_ids ?? []) as number[],
       rulesCount: Number(img.rules_count),
       rules: (rulesByImage.get(img.id as number) ?? []).map((r) => ({
@@ -72,12 +76,13 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     await ensureSchema();
-    const { name, base64Image, fileName, mimeType, groupName } = (await req.json()) as {
+    const { name, base64Image, fileName, mimeType, groupName, sourceUrl } = (await req.json()) as {
       name: string;
       base64Image: string;
       fileName: string;
       mimeType: string;
       groupName?: string | null;
+      sourceUrl?: string | null;
     };
 
     if (!name || !base64Image || !fileName || !mimeType) {
@@ -112,8 +117,8 @@ export async function POST(req: NextRequest) {
 
     const group = groupName?.trim() || null;
     const result = await query`
-      INSERT INTO repository_images (name, file_name, mime_type, image_data, group_name)
-      VALUES (${name}, ${fileName}, ${mimeType}, ${imageBuffer}, ${group})
+      INSERT INTO repository_images (name, file_name, mime_type, image_data, group_name, source_url)
+      VALUES (${name}, ${fileName}, ${mimeType}, ${imageBuffer}, ${group}, ${typeof sourceUrl === "string" && sourceUrl.trim() ? sourceUrl.trim() : null})
       RETURNING id
     `;
 

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { sql } from "@/lib/db";
+import { sql, ensureSchema } from "@/lib/db";
 import { SUPPORTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/constants";
 
 export async function GET(
@@ -147,6 +147,41 @@ export async function PUT(
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  }
+}
+
+/** Metadata-only update: rename, move to a group, or set the origin URL. */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await ensureSchema();
+    const imageId = Number((await params).id);
+    if (!Number.isInteger(imageId) || imageId <= 0) {
+      return new Response(JSON.stringify({ error: "Invalid image id" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+    const body = (await req.json()) as { name?: string; groupName?: string | null; sourceUrl?: string | null };
+    const query = sql();
+    const current = await query`SELECT name, group_name, source_url FROM repository_images WHERE id = ${imageId}`;
+    if (current.length === 0) {
+      return new Response(JSON.stringify({ error: "Image not found" }), { status: 404, headers: { "Content-Type": "application/json" } });
+    }
+    const name = body.name === undefined ? current[0].name : body.name.trim();
+    if (!name) {
+      return new Response(JSON.stringify({ error: "Name cannot be empty" }), { status: 400, headers: { "Content-Type": "application/json" } });
+    }
+    const groupName = body.groupName === undefined ? current[0].group_name : body.groupName?.trim() || null;
+    const sourceUrl = body.sourceUrl === undefined ? current[0].source_url : body.sourceUrl?.trim() || null;
+    const result = await query`
+      UPDATE repository_images SET name = ${name}, group_name = ${groupName}, source_url = ${sourceUrl}, updated_at = NOW()
+      WHERE id = ${imageId}
+      RETURNING id, name, group_name, source_url, updated_at
+    `;
+    return Response.json({ id: result[0].id, name: result[0].name, groupName: result[0].group_name, sourceUrl: result[0].source_url, updatedAt: result[0].updated_at });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update image";
+    return new Response(JSON.stringify({ error: message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 }
 

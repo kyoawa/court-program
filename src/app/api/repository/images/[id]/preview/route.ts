@@ -1,141 +1,79 @@
 import { NextRequest } from "next/server";
-import { sql, ensureSchema } from "@/lib/db";
+import { ensureSchema, loadExclusions, loadMatchingRules, productsWithRepositoryImage } from "@/lib/db";
+import { getCatalogProducts } from "@/lib/catalog";
+import { getImageCount } from "@/lib/image-utils";
+import { matchingRules, matchProduct, sortRules } from "@/lib/matching";
 
-interface RuleRow {
-  id: number;
-  brand_name: string | null;
-  category: string | null;
-  strain: string | null;
-  strain_type: string | null;
-  product_name_keywords: string[] | null;
-}
+export const dynamic = "force-dynamic";
 
-interface ProductRow {
+export interface PreviewMatch {
   productId: number;
   productName: string | null;
   brandName: string | null;
   category: string | null;
   strain: string | null;
   strainType: string | null;
+  excluded: boolean;
+  /** Images the product already has in Dutchie. */
+  imageCount: number;
+  /** This image has already been applied to the product through the app. */
+  alreadyApplied: boolean;
+  /** The image that actually wins for this product when every rule is considered. */
+  winnerImageId: number | null;
+  winnerImageName: string | null;
 }
 
-function ilike(value: string | null, pattern: string | null): boolean {
-  if (pattern === null) return true;
-  if (value === null) return false;
-  return value.toLowerCase() === pattern.toLowerCase();
-}
-
-function keywordsMatch(productName: string | null, keywords: string[] | null): boolean {
-  if (keywords === null) return true;
-  if (!productName) return false;
-  const lower = productName.toLowerCase();
-  return keywords.every((kw) => lower.includes(kw.toLowerCase()));
-}
-
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+/** Products this image's rules match, with what would really happen on apply. */
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await ensureSchema();
-    const { id } = await params;
-    const imageId = Number(id);
-    if (!Number.isFinite(imageId)) {
-      return new Response(
-        JSON.stringify({ error: "Invalid image id" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+    const imageId = Number((await params).id);
+    if (!Number.isInteger(imageId) || imageId <= 0) {
+      return new Response(JSON.stringify({ error: "Invalid image id" }), { status: 400, headers: { "Content-Type": "application/json" } });
     }
-
-    const query = sql();
-
-    const imageRows = (await query`
-      SELECT COALESCE(excluded_product_ids, '{}'::INTEGER[]) as excluded_product_ids
-      FROM repository_images
-      WHERE id = ${imageId}
-    `) as { excluded_product_ids: number[] }[];
-
-    if (imageRows.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Image not found" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
+    const allRules = sortRules(await loadMatchingRules());
+    const ownRules = allRules.filter((rule) => rule.imageId === imageId);
+    const exclusions = await loadExclusions();
+    const excluded = exclusions.get(imageId) ?? new Set<number>();
+    if (!exclusions.has(imageId)) {
+      return new Response(JSON.stringify({ error: "Image not found" }), { status: 404, headers: { "Content-Type": "application/json" } });
     }
+    const empty = { imageId, matchCount: 0, excludedCount: 0, applyCount: 0, missingCount: 0, excludedProductIds: Array.from(excluded), matches: [] as PreviewMatch[] };
+    if (ownRules.length === 0) return Response.json(empty);
 
-    const excluded = new Set<number>(imageRows[0].excluded_product_ids ?? []);
-
-    const rules = (await query`
-      SELECT id, brand_name, category, strain, strain_type, product_name_keywords
-      FROM matching_rules
-      WHERE image_id = ${imageId}
-    `) as unknown as RuleRow[];
-
-    if (rules.length === 0) {
-      return Response.json({
-        imageId,
-        matchCount: 0,
-        excludedCount: 0,
-        applyCount: 0,
-        excludedProductIds: Array.from(excluded),
-        matches: [],
+    const applied = await productsWithRepositoryImage(imageId);
+    const products = await getCatalogProducts({ isActive: true });
+    const matches: PreviewMatch[] = products
+      .filter((p) => ownRules.some((rule) => matchingRules(p, [rule]).length > 0))
+      .map((p) => {
+        const winner = matchProduct(p, allRules, exclusions);
+        return {
+          productId: p.productId,
+          productName: p.productName,
+          brandName: p.brandName,
+          category: p.category,
+          strain: p.strain,
+          strainType: p.strainType,
+          excluded: excluded.has(p.productId),
+          imageCount: getImageCount(p),
+          alreadyApplied: applied.has(p.productId),
+          winnerImageId: winner.matchedImageId,
+          winnerImageName: winner.matchedImageName,
+        };
       });
-    }
-
-    const baseUrl = req.nextUrl.origin;
-    const productsRes = await fetch(`${baseUrl}/api/products?isActive=true`, {
-      headers: { Cookie: req.headers.get("cookie") || "" },
-    });
-
-    if (!productsRes.ok) {
-      return Response.json({
-        imageId,
-        matchCount: 0,
-        excludedCount: 0,
-        applyCount: 0,
-        excludedProductIds: Array.from(excluded),
-        matches: [],
-      });
-    }
-
-    const products = (await productsRes.json()) as ProductRow[];
-
-    const matched = products.filter((p) =>
-      rules.some(
-        (r) =>
-          ilike(p.brandName, r.brand_name) &&
-          ilike(p.category, r.category) &&
-          ilike(p.strain, r.strain) &&
-          ilike(p.strainType, r.strain_type) &&
-          keywordsMatch(p.productName, r.product_name_keywords)
-      )
-    );
-
-    const matches = matched.map((p) => ({
-      productId: p.productId,
-      productName: p.productName,
-      brandName: p.brandName,
-      category: p.category,
-      strain: p.strain,
-      strainType: p.strainType,
-      excluded: excluded.has(p.productId),
-    }));
-
     const excludedCount = matches.filter((m) => m.excluded).length;
-
+    const applicable = matches.filter((m) => !m.excluded && !m.alreadyApplied);
     return Response.json({
       imageId,
       matchCount: matches.length,
       excludedCount,
-      applyCount: matches.length - excludedCount,
+      applyCount: applicable.length,
+      missingCount: applicable.filter((m) => m.imageCount === 0).length,
       excludedProductIds: Array.from(excluded),
       matches,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to preview matches";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    const message = error instanceof Error ? error.message : "Failed to preview matches";
+    return new Response(JSON.stringify({ error: message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 }

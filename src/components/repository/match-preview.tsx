@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { Loader2, Play, Search } from "lucide-react";
 import { toast } from "sonner";
 import type { ProductDetail, MatchResult } from "@/lib/types";
+import { repositoryImageUrl } from "@/lib/repository-utils";
 
 interface MatchPreviewProps {
   products: ProductDetail[];
@@ -221,7 +222,7 @@ export function MatchPreview({ products, productsLoading }: MatchPreviewProps) {
                       <div className="flex items-center gap-2">
                         {m.matchedImageId && (
                           <img
-                            src={`/api/repository/images/${m.matchedImageId}`}
+                            src={repositoryImageUrl({ id: m.matchedImageId })}
                             alt=""
                             className="w-8 h-8 rounded object-cover"
                           />

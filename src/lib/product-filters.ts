@@ -126,12 +126,12 @@ function compileRegex(source: string): RegExp | undefined {
   }
 }
 
-export function parseQuery(query: string): QueryTerm[] {
+export function parseQuery(query: string, knownFields: string[] = Object.keys(QUERY_FIELDS)): QueryTerm[] {
   const terms: QueryTerm[] = [];
   for (const match of query.matchAll(TERM_PATTERN)) {
     const [, negate, rawField, regexSource, phrase, word] = match;
     const field = rawField?.toLowerCase();
-    const knownField = field && field in QUERY_FIELDS ? field : undefined;
+    const knownField = field && knownFields.includes(field) ? field : undefined;
     const regex = regexSource !== undefined ? compileRegex(regexSource) : undefined;
     // An invalid regex is searched as literal text, and an unknown prefix
     // such as "re:order" is searched literally too.
@@ -172,7 +172,7 @@ export function parseExclusions(exclude: string): QueryTerm[][] {
     current += char;
   }
   entries.push(current);
-  return entries.map(parseQuery).filter((terms) => terms.length > 0);
+  return entries.map((entry) => parseQuery(entry)).filter((terms) => terms.length > 0);
 }
 
 function haystack(product: ProductDetail, field?: string): string {

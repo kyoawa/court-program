@@ -93,8 +93,12 @@ export interface RepositoryImage {
   fileName: string;
   mimeType: string;
   groupName: string | null;
-  thumbnailDataUrl: string | null;
   createdAt: string;
+  updatedAt: string | null;
+  /** Page or image URL this was imported from (Brand Sources, web search). */
+  sourceUrl: string | null;
+  /** Distinct products this image has been applied to through the app. */
+  appliedCount: number;
   excludedProductIds: number[];
   rules: MatchingRule[];
 }
@@ -117,6 +121,8 @@ export interface MatchResult {
   matchedImageId: number | null;
   matchedImageName: string | null;
   matchedRuleId: number | null;
+  /** Other repository images whose rules also matched, best first. */
+  alternativeImageIds?: number[];
 }
 
 export type InventoryMap = Record<number, string[]>;

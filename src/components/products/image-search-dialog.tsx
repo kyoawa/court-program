@@ -248,6 +248,7 @@ function ProductResultCard({
           fileName,
           mimeType,
           groupName: null,
+          sourceUrl: imageUrl,
         }),
       });
       if (!saveRes.ok) throw new Error("Failed to save image");

@@ -216,6 +216,10 @@ export async function initSchema() {
   await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS image_url TEXT`;
   await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS location TEXT`;
   await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`;
+  // Which repository image an upload came from, so the repository can show
+  // where each image is applied and avoid applying it twice.
+  await query`ALTER TABLE uploaded_images ADD COLUMN IF NOT EXISTS repository_image_id INTEGER`;
+  await query`CREATE INDEX IF NOT EXISTS idx_uploaded_images_repo ON uploaded_images(repository_image_id)`;
 
   await query`
     CREATE INDEX IF NOT EXISTS idx_uploaded_images_product
@@ -234,16 +238,69 @@ export async function recordUploadedImage(params: {
   imageId: number;
   imageUrl: string;
   location?: string;
+  repositoryImageId?: number | null;
 }): Promise<void> {
   await ensureSchema();
   const query = sql();
   const location = params.location ?? DEFAULT_LOCATION;
   await query`
-    INSERT INTO uploaded_images (product_id, image_id, image_url, location)
-    VALUES (${params.productId}, ${params.imageId}, ${params.imageUrl}, ${location})
+    INSERT INTO uploaded_images (product_id, image_id, image_url, location, repository_image_id)
+    VALUES (${params.productId}, ${params.imageId}, ${params.imageUrl}, ${location}, ${params.repositoryImageId ?? null})
     ON CONFLICT (product_id, image_id, location) DO UPDATE
-      SET image_url = EXCLUDED.image_url, uploaded_at = NOW()
+      SET image_url = EXCLUDED.image_url, uploaded_at = NOW(),
+          repository_image_id = COALESCE(EXCLUDED.repository_image_id, uploaded_images.repository_image_id)
   `;
+}
+
+/** Products that currently carry the given repository image (per this app's records). */
+export async function productsWithRepositoryImage(imageId: number, location?: string): Promise<Set<number>> {
+  await ensureSchema();
+  const query = sql();
+  const rows = await query`
+    SELECT DISTINCT product_id FROM uploaded_images
+    WHERE repository_image_id = ${imageId} AND location = ${location ?? DEFAULT_LOCATION}
+  `;
+  return new Set(rows.map((row) => row.product_id as number));
+}
+
+/** Per-image product exclusions for a set of repository images. */
+export async function loadExclusions(imageIds?: number[]): Promise<Map<number, Set<number>>> {
+  await ensureSchema();
+  const query = sql();
+  const rows = imageIds
+    ? await query`SELECT id, COALESCE(excluded_product_ids, '{}'::INTEGER[]) AS excluded FROM repository_images WHERE id = ANY(${imageIds}::INTEGER[])`
+    : await query`SELECT id, COALESCE(excluded_product_ids, '{}'::INTEGER[]) AS excluded FROM repository_images`;
+  return new Map(rows.map((row) => [row.id as number, new Set((row.excluded as number[]) ?? [])]));
+}
+
+/** Every matching rule with its image name, in evaluation order. */
+export async function loadMatchingRules(imageId?: number) {
+  await ensureSchema();
+  const query = sql();
+  const rows = imageId
+    ? await query`
+        SELECT r.id, r.image_id, ri.name AS image_name, r.brand_name, r.category, r.strain, r.strain_type,
+               r.product_name_keywords, r.priority, r.created_at
+        FROM matching_rules r JOIN repository_images ri ON ri.id = r.image_id
+        WHERE r.image_id = ${imageId}
+        ORDER BY r.priority DESC, r.created_at ASC`
+    : await query`
+        SELECT r.id, r.image_id, ri.name AS image_name, r.brand_name, r.category, r.strain, r.strain_type,
+               r.product_name_keywords, r.priority, r.created_at
+        FROM matching_rules r JOIN repository_images ri ON ri.id = r.image_id
+        ORDER BY r.priority DESC, r.created_at ASC`;
+  return rows.map((row) => ({
+    id: row.id as number,
+    imageId: row.image_id as number,
+    imageName: row.image_name as string,
+    brandName: row.brand_name as string | null,
+    category: row.category as string | null,
+    strain: row.strain as string | null,
+    strainType: row.strain_type as string | null,
+    productNameKeywords: (row.product_name_keywords as string[] | null) ?? null,
+    priority: row.priority as number,
+    createdAt: row.created_at as string,
+  }));
 }
 
 export async function findUploadedImageId(params: {
