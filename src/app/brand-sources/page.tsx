@@ -87,7 +87,12 @@ export default function BrandSourcesPage() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  {activeId === source.id && <ScanPanel source={source} onImported={() => mutate()} />}
+                  {activeId === source.id && (
+                    <>
+                      <CookieEditor source={source} onSaved={() => mutate()} />
+                      <ScanPanel source={source} onImported={() => mutate()} />
+                    </>
+                  )}
                 </div>
               ))}
             </section>
@@ -104,6 +109,7 @@ function AddSourceForm({ brands, onSaved }: { brands: string[]; onSaved: () => v
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [prefix, setPrefix] = useState("");
+  const [cookies, setCookies] = useState("");
   const [saving, setSaving] = useState(false);
   const brandName = brand === "__custom" ? customBrand.trim() : brand;
 
@@ -114,12 +120,12 @@ function AddSourceForm({ brands, onSaved }: { brands: string[]; onSaved: () => v
       const res = await fetch("/api/brand-sources", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandName, url: url.trim(), label: label.trim() || null, pathPrefix: prefix.trim() || null }),
+        body: JSON.stringify({ brandName, url: url.trim(), label: label.trim() || null, pathPrefix: prefix.trim() || null, cookies: cookies.trim() || null }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Failed to save");
       toast.success(`Saved source for ${brandName}`);
-      setUrl(""); setLabel(""); setPrefix("");
+      setUrl(""); setLabel(""); setPrefix(""); setCookies("");
       onSaved();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save");
@@ -160,6 +166,10 @@ function AddSourceForm({ brands, onSaved }: { brands: string[]; onSaved: () => v
           <label className="text-xs text-muted-foreground">Only follow links under (optional)</label>
           <Input className="w-48 h-8" value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="/collections/pre-rolls" />
         </div>
+        <div className="space-y-1 flex-1 min-w-64">
+          <label className="text-xs text-muted-foreground">Cookies (optional, for sites with an age confirmation or login)</label>
+          <Input className="h-8" value={cookies} onChange={(e) => setCookies(e.target.value)} placeholder="name=value; name2=value2" />
+        </div>
         <Button size="sm" onClick={handleSave} disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
           Save
@@ -167,8 +177,45 @@ function AddSourceForm({ brands, onSaved }: { brands: string[]; onSaved: () => v
       </div>
       <p className="text-xs text-muted-foreground">
         The scan reads the page, its pagination, and one level of product links on the same site (up to about 150 pages).
-        Pages that only render in JavaScript, such as Dutchie menus, may yield nothing.
+        If a site asks for an age confirmation or a login before showing products, confirm it once in your own browser, then copy that
+        site&apos;s cookies (DevTools → Application → Cookies, as <code>name=value; name2=value2</code>) into the Cookies field so the scan
+        uses your session. Pages that only render in JavaScript, such as Dutchie menus, may yield nothing.
       </p>
+    </div>
+  );
+}
+
+function CookieEditor({ source, onSaved }: { source: BrandSourceRow; onSaved: () => void }) {
+  const [value, setValue] = useState(source.cookies ?? "");
+  const [saving, setSaving] = useState(false);
+  const dirty = value.trim() !== (source.cookies ?? "");
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/brand-sources/${source.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cookies: value.trim() || null }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to save");
+      toast.success(value.trim() ? "Cookies saved" : "Cookies cleared");
+      onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="flex items-center gap-2 border-t pt-3 text-xs">
+      <span className="text-muted-foreground shrink-0">Cookies</span>
+      <Input
+        className="h-7 text-xs"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Optional: paste from your browser if the site needs an age confirmation or login"
+      />
+      <Button size="sm" variant="outline" className="h-7" onClick={save} disabled={!dirty || saving}>Save</Button>
     </div>
   );
 }
@@ -239,6 +286,11 @@ function ScanPanel({ source, onImported }: { source: BrandSourceRow; onImported:
             {state.candidates.length} images on {state.pagesVisited} pages · {newCount} new
             {state.truncated && ` · stopped at the ${state.truncatedReason === "time" ? "time" : "page"} limit`}
             {state.errors.length > 0 && ` · ${state.errors.length} pages failed`}
+          </span>
+        )}
+        {state.status === "done" && state.ageGated && (
+          <span className="text-sm text-amber-700">
+            This site shows an age confirmation instead of its products. Confirm it in your browser, paste the site&apos;s cookies into this source above, and scan again.
           </span>
         )}
         {state.status === "error" && <span className="text-sm text-destructive">{state.error}</span>}

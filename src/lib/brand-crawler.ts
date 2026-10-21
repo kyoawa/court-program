@@ -353,7 +353,8 @@ const GATE_WORDS = /age[\s_-]?(gate|verif|check|confirm)|are you (21|18|19|over|
  */
 export function looksLikeAgeGate(html: string): boolean {
   if (!GATE_WORDS.test(html)) return false;
+  // A real gate page links to no products and shows almost no images.
   const productLinks = (html.match(/href=["'][^"']*\/(products?|shop|item|menu)\//gi) ?? []).length;
   const images = (html.match(/<img\b/gi) ?? []).length;
-  return productLinks < 3 && images < 12;
+  return productLinks === 0 && images < 8;
 }

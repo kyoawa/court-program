@@ -29,6 +29,8 @@ export interface ScanState {
   truncatedReason?: "pages" | "time";
   errors: { url: string; error: string }[];
   error?: string;
+  /** The site showed an age confirmation instead of products. */
+  ageGated?: boolean;
 }
 
 const IDLE: ScanState = { status: "idle", pagesVisited: 0, queued: 0, found: 0, candidates: [], errors: [] };
@@ -73,6 +75,7 @@ export function useBrandSourceScan() {
               truncated: event.truncated,
               truncatedReason: event.truncatedReason,
               errors: event.errors ?? [],
+              ageGated: Boolean(event.ageGated),
             });
           } else if (event.type === "error") {
             throw new Error(event.error);

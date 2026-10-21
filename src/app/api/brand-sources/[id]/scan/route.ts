@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { ensureSchema, sql } from "@/lib/db";
-import { fetchHtml } from "@/lib/page-fetch";
-import { canonicalImageUrl, crawlBrandSource, keywordsFromTitle, type CrawlCandidate } from "@/lib/brand-crawler";
+import { CookieJar, fetchHtml } from "@/lib/page-fetch";
+import { canonicalImageUrl, crawlBrandSource, keywordsFromTitle, looksLikeAgeGate, type CrawlCandidate } from "@/lib/brand-crawler";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -36,9 +36,20 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       const encoder = new TextEncoder();
       const send = (data: Record<string, unknown>) => controller.enqueue(encoder.encode(encode(data)));
       try {
+        // Cookies the user copied from their own browser session (after
+        // confirming their age or logging in), plus any the site sets while
+        // crawling.
+        const jar = new CookieJar();
+        jar.addHeader(source.url as string, source.cookies as string | null);
+        let gatedPages = 0;
+        const fetchPage = async (url: string): Promise<string | null> => {
+          const html = await fetchHtml(url, { jar });
+          if (html && looksLikeAgeGate(html)) gatedPages++;
+          return html;
+        };
         const result = await crawlBrandSource(
           { url: source.url as string, pathPrefix: source.path_prefix as string | null },
-          { fetchPage: fetchHtml },
+          { fetchPage },
           {},
           (progress) => send({ type: "progress", ...progress }),
         );
@@ -54,7 +65,17 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         }));
         const summary = { pagesVisited: result.pagesVisited, candidates: candidates.length, truncated: result.truncated, errors: result.errors.length };
         await query`UPDATE brand_sources SET last_scanned_at = NOW(), last_scan_summary = ${JSON.stringify(summary)}::jsonb WHERE id = ${id}`;
-        send({ type: "done", candidates, pagesVisited: result.pagesVisited, truncated: result.truncated, truncatedReason: result.truncatedReason, errors: result.errors });
+        send({
+          type: "done",
+          candidates,
+          pagesVisited: result.pagesVisited,
+          truncated: result.truncated,
+          truncatedReason: result.truncatedReason,
+          errors: result.errors,
+          // The site showed an age confirmation instead of products; the user
+          // can confirm in their browser and paste the cookies into the source.
+          ageGated: gatedPages > 0 && candidates.length === 0,
+        });
       } catch (error) {
         send({ type: "error", error: error instanceof Error ? error.message : "Scan failed" });
       } finally {

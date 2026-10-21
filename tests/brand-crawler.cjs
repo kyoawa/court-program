@@ -102,6 +102,14 @@ test('time budget stops the crawl and failed pages are reported', async () => {
   assert.deepEqual(errors, [{ url: `${site}/products/gelato-5pk`, error: 'boom' }]);
 });
 
+test('pages that are an age confirmation rather than content are recognised', () => {
+  const { looksLikeAgeGate } = crawler;
+  const gate = '<html><body><h1>Are you 21 or older?</h1><form method="post" action="/confirm"><button name="choice" value="yes">Yes</button></form></body></html>';
+  assert.equal(looksLikeAgeGate(gate), true);
+  assert.equal(looksLikeAgeGate(listing(1)), false);
+  assert.equal(looksLikeAgeGate(listing(1).replace('<title>Shop</title>', '<title>Shop</title><div>Must be 21 to enter</div>')), false, 'gate wording on a real product page is not a gate');
+});
+
 test('rule keywords drop brand, dosage and filler words', () => {
   assert.deepEqual(plain(keywordsFromTitle('Stokes OG Kush 1g Pre-Roll (5pk)', 'Stokes')), ['og', 'kush', 'pre', 'roll']);
   assert.deepEqual(plain(keywordsFromTitle('The Blue Dream Cannabis Product', 'Lowell Herb Co')), ['blue', 'dream']);

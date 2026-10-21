@@ -14,7 +14,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     const id = parseId((await params).id);
     if (!id) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-    const body = (await req.json()) as { brandName?: string; url?: string; label?: string | null; pathPrefix?: string | null };
+    const body = (await req.json()) as { brandName?: string; url?: string; label?: string | null; pathPrefix?: string | null; cookies?: string | null };
     if (body.url !== undefined && !isPublicHttpUrl(body.url)) return NextResponse.json({ error: "Enter a public http(s) page URL." }, { status: 400 });
     await ensureSchema();
     const query = sql();
@@ -28,7 +28,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         brand_name = ${body.brandName?.trim() || current[0].brand_name},
         url = ${body.url?.trim() || current[0].url},
         label = ${body.label === undefined ? current[0].label : body.label?.trim() || null},
-        path_prefix = ${pathPrefix}
+        path_prefix = ${pathPrefix},
+        cookies = ${body.cookies === undefined ? current[0].cookies : body.cookies?.trim() || null}
       WHERE id = ${id}
       RETURNING *
     `;

@@ -10,6 +10,8 @@ export interface BrandSourceRow {
   url: string;
   label: string | null;
   pathPrefix: string | null;
+  /** Optional Cookie header copied from the user's browser for gated or logged-in sites. */
+  cookies: string | null;
   lastScannedAt: string | null;
   lastScanSummary: { pagesVisited: number; candidates: number; truncated: boolean; errors: number } | null;
   createdAt: string;
@@ -22,6 +24,7 @@ export function toRow(row: Record<string, unknown>): BrandSourceRow {
     url: row.url as string,
     label: (row.label as string | null) ?? null,
     pathPrefix: (row.path_prefix as string | null) ?? null,
+    cookies: (row.cookies as string | null) ?? null,
     lastScannedAt: (row.last_scanned_at as string | null) ?? null,
     lastScanSummary: (row.last_scan_summary as BrandSourceRow["lastScanSummary"]) ?? null,
     createdAt: row.created_at as string,
@@ -41,7 +44,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { brandName?: string; url?: string; label?: string | null; pathPrefix?: string | null };
+    const body = (await req.json()) as { brandName?: string; url?: string; label?: string | null; pathPrefix?: string | null; cookies?: string | null };
     const brandName = body.brandName?.trim();
     const url = body.url?.trim();
     if (!brandName || !url) return NextResponse.json({ error: "brandName and url are required" }, { status: 400 });
@@ -49,10 +52,11 @@ export async function POST(req: NextRequest) {
     const pathPrefix = body.pathPrefix?.trim() ? `/${body.pathPrefix.trim().replace(/^\/+|\/+$/g, "")}` : null;
     await ensureSchema();
     const query = sql();
+    const cookies = body.cookies?.trim() || null;
     const rows = await query`
-      INSERT INTO brand_sources (brand_name, url, label, path_prefix)
-      VALUES (${brandName}, ${url}, ${body.label?.trim() || null}, ${pathPrefix})
-      ON CONFLICT (brand_name, url) DO UPDATE SET label = EXCLUDED.label, path_prefix = EXCLUDED.path_prefix
+      INSERT INTO brand_sources (brand_name, url, label, path_prefix, cookies)
+      VALUES (${brandName}, ${url}, ${body.label?.trim() || null}, ${pathPrefix}, ${cookies})
+      ON CONFLICT (brand_name, url) DO UPDATE SET label = EXCLUDED.label, path_prefix = EXCLUDED.path_prefix, cookies = EXCLUDED.cookies
       RETURNING *
     `;
     return NextResponse.json(toRow(rows[0]));
