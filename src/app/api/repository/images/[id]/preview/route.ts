@@ -73,6 +73,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       matches,
     });
   } catch (error) {
+    console.error("[repository/preview] failed:", error);
     const message = error instanceof Error ? error.message : "Failed to preview matches";
     return new Response(JSON.stringify({ error: message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }

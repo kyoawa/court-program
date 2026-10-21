@@ -155,13 +155,16 @@ export function RuleEditor({ imageId, rules, excludedProductIds, brands, categor
   const loadPreview = useCallback(async () => {
     setPreviewing(true);
     try {
-      const res = await fetch(`/api/repository/images/${imageId}/preview`);
-      if (!res.ok) throw new Error("Preview failed");
+      const res = await fetch(`/api/repository/images/${imageId}/preview`, { cache: "no-store" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Preview failed (HTTP ${res.status})`);
+      }
       const data = (await res.json()) as ImagePreview;
       setPreview(data);
       localExclusionsRef.current = new Set(data.excludedProductIds);
-    } catch {
-      toast.error("Failed to load preview");
+    } catch (err) {
+      toast.error(`Failed to load preview: ${err instanceof Error ? err.message : "unknown error"}`);
     } finally {
       setPreviewing(false);
     }

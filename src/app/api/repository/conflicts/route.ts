@@ -31,6 +31,7 @@ export async function GET() {
       }));
     return Response.json({ conflicts, imageNames: Object.fromEntries(names) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    console.error("[repository/conflicts] failed:", error);
     const message = error instanceof Error ? error.message : "Failed to find conflicts";
     return new Response(JSON.stringify({ error: message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
